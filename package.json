@@ -10,8 +10,20 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@graphql-tools/schema": "^10.0.29",
     "@nomicfoundation/hardhat-toolbox": "^6.1.0",
     "@openzeppelin/contracts": "^5.4.0",
-    "hardhat": "^3.0.14"
-  }
+    "@types/node": "^24.10.1",
+    "apollo-server-express": "^3.13.0",
+    "chai-as-promised": "^8.0.2",
+    "dotenv": "^17.2.3",
+    "ethers": "^6.15.0",
+    "express": "^5.1.0",
+    "graphql": "^16.12.0",
+    "hardhat": "^3.0.14",
+    "snarkjs": "^0.7.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "type": "module"
 }

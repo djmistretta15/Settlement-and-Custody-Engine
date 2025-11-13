@@ -1,14 +1,86 @@
 [profile.default]
-src = "contracts/solidity"
+src = "contracts"
 out = "out"
-libs = ["node_modules"]
-solc_version = "0.8.24"
+libs = ["node_modules", "lib"]
+test = "test/foundry"
+cache_path = "cache_foundry"
+
+# Solidity compiler settings
+solc_version = "0.8.20"
+evm_version = "shanghai"
 optimizer = true
 optimizer_runs = 200
-via_ir = true
-fuzz_runs = 1000
+via_ir = false
+
+# Testing configuration
+fuzz = { runs = 100_000, max_test_reject = 1_000_000 }
+invariant = { runs = 1000, depth = 500, fail_on_revert = true }
+
+# Gas reporting
+gas_reports = ["*"]
+gas_reports_ignore = ["Test"]
+
+# Verbosity
+verbosity = 2
+
+# Enable FFI for integration tests
+ffi = false
+
+# Remappings
+remappings = [
+    "@openzeppelin/=node_modules/@openzeppelin/",
+    "forge-std/=lib/forge-std/src/",
+    "ds-test/=lib/ds-test/src/"
+]
+
+# Coverage
+no_match_coverage = [
+    "test/",
+    "script/"
+]
 
 [profile.ci]
-fuzz_runs = 10000
+fuzz = { runs = 10_000 }
+invariant = { runs = 100 }
+verbosity = 4
 
-# See more config options https://github.com/foundry-rs/foundry/tree/master/config
+[profile.lite]
+fuzz = { runs = 1_000 }
+invariant = { runs = 10 }
+optimizer_runs = 200
+
+[profile.intense]
+fuzz = { runs = 500_000, max_test_reject = 5_000_000 }
+invariant = { runs = 5000, depth = 1000 }
+optimizer_runs = 10_000
+
+# RPC endpoints for forking
+[rpc_endpoints]
+mainnet = "${MAINNET_RPC_URL}"
+sepolia = "${SEPOLIA_RPC_URL}"
+arbitrum = "${ARBITRUM_RPC_URL}"
+optimism = "${OPTIMISM_RPC_URL}"
+
+# Etherscan API keys for verification
+[etherscan]
+mainnet = { key = "${ETHERSCAN_API_KEY}" }
+sepolia = { key = "${ETHERSCAN_API_KEY}" }
+arbitrum = { key = "${ARBISCAN_API_KEY}" }
+optimism = { key = "${OPTIMISTIC_ETHERSCAN_API_KEY}" }
+
+# Formatter settings
+[fmt]
+line_length = 100
+tab_width = 4
+bracket_spacing = true
+int_types = "long"
+quote_style = "double"
+number_underscore = "thousands"
+multiline_func_header = "all"
+sort_imports = true
+
+# Documentation
+[doc]
+out = "docs"
+repository = "https://github.com/settlement-engine/custody"
+ignore = ["test/", "script/"]

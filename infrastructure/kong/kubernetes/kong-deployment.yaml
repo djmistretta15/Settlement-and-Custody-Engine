@@ -1,0 +1,637 @@
+###############################################################################
+# Kong API Gateway Kubernetes Deployment
+# Production-Grade API Management for Settlement and Custody Engine
+###############################################################################
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kong-gateway
+  labels:
+    app: kong
+    env: production
+
+---
+
+###############################################################################
+# ConfigMap for Kong Configuration
+###############################################################################
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-config
+  namespace: kong-gateway
+  labels:
+    app: kong
+data:
+  KONG_DATABASE: "off"  # DB-less mode with declarative config
+  KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+  KONG_PROXY_ACCESS_LOG: /dev/stdout
+  KONG_ADMIN_ACCESS_LOG: /dev/stdout
+  KONG_PROXY_ERROR_LOG: /dev/stderr
+  KONG_ADMIN_ERROR_LOG: /dev/stderr
+  KONG_LOG_LEVEL: info
+  KONG_PLUGINS: bundled,request-validator,bot-detection
+  KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+  KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+  KONG_TRUSTED_IPS: 0.0.0.0/0,::/0
+  KONG_REAL_IP_HEADER: X-Forwarded-For
+  KONG_REAL_IP_RECURSIVE: "on"
+  KONG_HEADERS: "off"
+  KONG_LATENCY_TOKENS: "on"
+
+---
+
+###############################################################################
+# Secret for Sensitive Configuration
+###############################################################################
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kong-secrets
+  namespace: kong-gateway
+  labels:
+    app: kong
+type: Opaque
+stringData:
+  KONG_ADMIN_LISTEN: "0.0.0.0:8001, 0.0.0.0:8444 ssl"
+  REDIS_PASSWORD: "${REDIS_PASSWORD}"
+  ANALYTICS_TOKEN: "${ANALYTICS_TOKEN}"
+
+---
+
+###############################################################################
+# Kong Declarative Configuration ConfigMap
+###############################################################################
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-declarative-config
+  namespace: kong-gateway
+  labels:
+    app: kong
+data:
+  kong.yml: |
+    _format_version: "3.0"
+    _transform: true
+
+    services:
+      - name: settlement-service
+        url: http://settlement-engine.settlement-engine.svc.cluster.local:3000
+        protocol: http
+        connect_timeout: 60000
+        write_timeout: 60000
+        read_timeout: 60000
+        retries: 3
+        routes:
+          - name: settlement-v1
+            paths:
+              - /api/v1/settlements
+            methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - https
+
+      - name: custody-service
+        url: http://custody-engine.settlement-engine.svc.cluster.local:3001
+        protocol: http
+        connect_timeout: 60000
+        write_timeout: 120000
+        read_timeout: 120000
+        retries: 2
+        routes:
+          - name: custody-vaults
+            paths:
+              - /api/v1/vaults
+            methods:
+              - GET
+              - POST
+              - PUT
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - https
+
+      - name: finality-service
+        url: http://finality-verifier.settlement-engine.svc.cluster.local:3002
+        protocol: http
+        connect_timeout: 30000
+        write_timeout: 30000
+        read_timeout: 30000
+        retries: 5
+        routes:
+          - name: finality-status
+            paths:
+              - /api/v1/finality
+            methods:
+              - GET
+              - POST
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - https
+
+      - name: health-service
+        url: http://settlement-engine.settlement-engine.svc.cluster.local:3000/health
+        protocol: http
+        connect_timeout: 5000
+        write_timeout: 5000
+        read_timeout: 5000
+        retries: 1
+        routes:
+          - name: health-check
+            paths:
+              - /health
+            methods:
+              - GET
+            strip_path: true
+            protocols:
+              - http
+              - https
+
+    plugins:
+      - name: rate-limiting
+        config:
+          second: 100
+          minute: 3000
+          hour: 50000
+          policy: redis
+          redis_host: redis-master.kong-gateway.svc.cluster.local
+          redis_port: 6379
+          fault_tolerant: true
+
+      - name: prometheus
+        config:
+          per_consumer: true
+          status_code_metrics: true
+          latency_metrics: true
+          bandwidth_metrics: true
+
+      - name: cors
+        config:
+          origins:
+            - "*"
+          methods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - OPTIONS
+          headers:
+            - Accept
+            - Authorization
+            - Content-Type
+            - X-API-Key
+          credentials: true
+          max_age: 3600
+
+      - name: request-size-limiting
+        config:
+          allowed_payload_size: 10
+          size_unit: megabytes
+          require_content_length: true
+
+---
+
+###############################################################################
+# Kong Deployment
+###############################################################################
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong-gateway
+  namespace: kong-gateway
+  labels:
+    app: kong
+    tier: api-gateway
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kong
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: kong
+        tier: api-gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: kong-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - kong
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: kong
+          image: kong:3.4-alpine
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: kong-config
+            - secretRef:
+                name: kong-secrets
+          env:
+            - name: KONG_ADMIN_LISTEN
+              value: "0.0.0.0:8001"
+            - name: KONG_PROXY_LISTEN
+              value: "0.0.0.0:8000, 0.0.0.0:8443 ssl"
+            - name: KONG_STATUS_LISTEN
+              value: "0.0.0.0:8100"
+          ports:
+            - name: proxy
+              containerPort: 8000
+              protocol: TCP
+            - name: proxy-ssl
+              containerPort: 8443
+              protocol: TCP
+            - name: admin
+              containerPort: 8001
+              protocol: TCP
+            - name: status
+              containerPort: 8100
+              protocol: TCP
+          volumeMounts:
+            - name: kong-config-volume
+              mountPath: /kong
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: status
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: status
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: kong-config-volume
+          configMap:
+            name: kong-declarative-config
+      terminationGracePeriodSeconds: 30
+
+---
+
+###############################################################################
+# Horizontal Pod Autoscaler
+###############################################################################
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kong-hpa
+  namespace: kong-gateway
+  labels:
+    app: kong
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: kong-gateway
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+
+---
+
+###############################################################################
+# Pod Disruption Budget
+###############################################################################
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kong-pdb
+  namespace: kong-gateway
+  labels:
+    app: kong
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: kong
+
+---
+
+###############################################################################
+# Service for Kong Proxy
+###############################################################################
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-proxy
+  namespace: kong-gateway
+  labels:
+    app: kong
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "3600"
+spec:
+  type: LoadBalancer
+  selector:
+    app: kong
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP
+    - name: https
+      port: 443
+      targetPort: 8443
+      protocol: TCP
+  sessionAffinity: None
+  externalTrafficPolicy: Local
+
+---
+
+###############################################################################
+# Service for Kong Admin (Internal Only)
+###############################################################################
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-admin
+  namespace: kong-gateway
+  labels:
+    app: kong
+spec:
+  type: ClusterIP
+  selector:
+    app: kong
+  ports:
+    - name: admin
+      port: 8001
+      targetPort: 8001
+      protocol: TCP
+
+---
+
+###############################################################################
+# Service Account
+###############################################################################
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kong-service-account
+  namespace: kong-gateway
+  labels:
+    app: kong
+
+---
+
+###############################################################################
+# Network Policy - Restrict Ingress
+###############################################################################
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kong-network-policy
+  namespace: kong-gateway
+  labels:
+    app: kong
+spec:
+  podSelector:
+    matchLabels:
+      app: kong
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+          podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 8443
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8001
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: settlement-engine
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 3001
+        - protocol: TCP
+          port: 3002
+        - protocol: TCP
+          port: 3003
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+
+---
+
+###############################################################################
+# Ingress for Kong (Optional - if using Ingress Controller)
+###############################################################################
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kong-ingress
+  namespace: kong-gateway
+  labels:
+    app: kong
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/certificate-arn: ${ACM_CERTIFICATE_ARN}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
+    alb.ingress.kubernetes.io/healthy-threshold-count: '2'
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: '3'
+spec:
+  rules:
+    - host: api.settlement-engine.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kong-proxy
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - api.settlement-engine.com
+      secretName: settlement-tls-secret
+
+---
+
+###############################################################################
+# Redis Deployment for Rate Limiting
+###############################################################################
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-master
+  namespace: kong-gateway
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - --requirepass
+            - $(REDIS_PASSWORD)
+            - --maxmemory
+            - 2gb
+            - --maxmemory-policy
+            - allkeys-lru
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kong-secrets
+                  key: REDIS_PASSWORD
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 2Gi
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-master
+  namespace: kong-gateway
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+
+###############################################################################
+# End of Kubernetes Configuration
+###############################################################################

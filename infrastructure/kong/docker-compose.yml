@@ -1,0 +1,248 @@
+###############################################################################
+# Kong API Gateway Docker Compose
+# Local Development Environment for Settlement and Custody Engine
+###############################################################################
+
+version: '3.9'
+
+x-kong-config: &kong-env
+  KONG_DATABASE: postgres
+  KONG_PG_HOST: kong-database
+  KONG_PG_PORT: 5432
+  KONG_PG_USER: kong
+  KONG_PG_PASSWORD: ${KONG_PG_PASSWORD:-kong}
+  KONG_PG_DATABASE: kong
+  KONG_PROXY_ACCESS_LOG: /dev/stdout
+  KONG_ADMIN_ACCESS_LOG: /dev/stdout
+  KONG_PROXY_ERROR_LOG: /dev/stderr
+  KONG_ADMIN_ERROR_LOG: /dev/stderr
+  KONG_ADMIN_LISTEN: 0.0.0.0:8001
+  KONG_ADMIN_GUI_URL: http://localhost:8002
+  KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl
+  KONG_DECLARATIVE_CONFIG: /opt/kong/kong.yml
+  KONG_PLUGINS: bundled,request-validator,bot-detection
+  KONG_LOG_LEVEL: info
+  KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+  KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+
+networks:
+  kong-net:
+    driver: bridge
+    name: settlement-kong-network
+  backend-net:
+    driver: bridge
+    name: settlement-backend-network
+
+volumes:
+  kong-data:
+    driver: local
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+
+services:
+  ###########################################################################
+  # Kong Database (PostgreSQL)
+  ###########################################################################
+  kong-database:
+    image: postgres:15-alpine
+    container_name: kong-postgres
+    environment:
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: ${KONG_PG_PASSWORD:-kong}
+      POSTGRES_DB: kong
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - kong-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kong"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  ###########################################################################
+  # Kong Database Migration
+  ###########################################################################
+  kong-migration:
+    image: kong:3.4-alpine
+    container_name: kong-migration
+    command: kong migrations bootstrap --force
+    environment:
+      <<: *kong-env
+    networks:
+      - kong-net
+    depends_on:
+      kong-database:
+        condition: service_healthy
+    restart: on-failure
+
+  ###########################################################################
+  # Kong Gateway
+  ###########################################################################
+  kong:
+    image: kong:3.4-alpine
+    container_name: kong-gateway
+    environment:
+      <<: *kong-env
+    volumes:
+      - ./kong.yml:/opt/kong/kong.yml:ro
+      - ./plugins:/opt/kong/plugins:ro
+    networks:
+      - kong-net
+      - backend-net
+    ports:
+      - "8000:8000"   # Proxy HTTP
+      - "8443:8443"   # Proxy HTTPS
+      - "8001:8001"   # Admin API
+      - "8444:8444"   # Admin API HTTPS
+      - "8002:8002"   # Kong Manager GUI
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      kong-migration:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+
+  ###########################################################################
+  # Redis (for rate limiting and caching)
+  ###########################################################################
+  redis:
+    image: redis:7-alpine
+    container_name: kong-redis
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-settlement_redis_password}
+      --maxmemory 2gb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - redis-data:/data
+    networks:
+      - kong-net
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+
+  ###########################################################################
+  # Konga (Kong Admin Dashboard - Optional)
+  ###########################################################################
+  konga:
+    image: pantsel/konga:latest
+    container_name: konga-dashboard
+    environment:
+      TOKEN_SECRET: ${KONGA_TOKEN_SECRET:-settlement_konga_secret}
+      NODE_ENV: production
+      DB_ADAPTER: postgres
+      DB_HOST: kong-database
+      DB_PORT: 5432
+      DB_USER: kong
+      DB_PASSWORD: ${KONG_PG_PASSWORD:-kong}
+      DB_DATABASE: konga
+    networks:
+      - kong-net
+    ports:
+      - "1337:1337"
+    depends_on:
+      kong-database:
+        condition: service_healthy
+      kong:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ###########################################################################
+  # Analytics Service (Log Aggregation)
+  ###########################################################################
+  analytics:
+    image: node:20-alpine
+    container_name: kong-analytics
+    working_dir: /app
+    volumes:
+      - ./analytics:/app
+    command: node server.js
+    networks:
+      - kong-net
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      NODE_ENV: production
+    restart: unless-stopped
+
+  ###########################################################################
+  # Prometheus (Metrics Collection)
+  ###########################################################################
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: kong-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - kong-net
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  ###########################################################################
+  # Grafana (Visualization)
+  ###########################################################################
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: kong-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-settlement_grafana}
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - ./monitoring/grafana:/etc/grafana/provisioning
+    networks:
+      - kong-net
+    ports:
+      - "3100:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+###############################################################################
+# End of Docker Compose Configuration
+###############################################################################

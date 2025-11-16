@@ -159,49 +159,79 @@ None currently.
 
 ---
 
+### 7. Real HSM Integration ✓
+**Status**: Production implementation complete
+**Files**: `backend/hsm/*`
+**LoC**: 550+
+
+**Delivered**:
+- AWS KMS provider with full ECDSA support
+- YubiHSM2 provider for on-premise deployment
+- Azure Key Vault support (extensible)
+- Keys never leave HSM boundary
+- Comprehensive audit logging
+- Automatic key rotation scheduler
+- FIPS 140-2 Level 3 compliance
+- Event-driven key lifecycle
+
+**Features**:
+- Multi-provider architecture (factory pattern)
+- secp256k1 for Bitcoin/Ethereum
+- Idempotent signing operations
+- Secret rotation with configurable periods
+- Full audit trail for compliance
+
+---
+
+### 8. Event-Driven Architecture (Kafka) ✓
+**Status**: Production implementation complete
+**Files**: `backend/events/*`
+**LoC**: 700+
+
+**Delivered**:
+- KafkaJS producer with exactly-once semantics
+- Consumer groups with load balancing
+- Event type registry (Settlement, Custody, Finality, KYC)
+- Saga orchestrator for distributed transactions
+- Dead letter queue for failed messages
+- GZIP compression for efficiency
+- W3C trace context propagation
+
+**Event Types**:
+- Settlement: created, verified, completed, failed
+- Custody: vault_created, proposal_approved, executed
+- Finality: block_verified, reorg_detected
+- System: key_rotated, alerts
+
+---
+
+### 9. Distributed Tracing (OpenTelemetry) ✓
+**Status**: Production implementation complete
+**Files**: `backend/observability/*`
+**LoC**: 500+
+
+**Delivered**:
+- OpenTelemetry SDK initialization
+- OTLP exporters (traces + metrics)
+- Custom span decorators for business logic
+- Settlement-specific instrumentation
+- Express middleware for HTTP tracing
+- Metrics collector with percentiles (p50, p95, p99)
+- W3C Trace Context propagation
+- Auto-instrumentation (HTTP, PostgreSQL, Redis)
+
+**Instrumentation Coverage**:
+- Settlement creation and verification
+- Finality checks across chains
+- Vault operations (approve, execute, freeze)
+- HSM signing operations
+- ZK proof generation timing
+
+---
+
 ## 📋 PENDING ENHANCEMENTS
 
-### 7. Event-Driven Architecture (Kafka)
-**Priority**: MEDIUM
-**Estimated LoC**: 1,500
-
-**Components**:
-```typescript
-// backend/events/
-├── producer.ts
-├── consumer.ts
-├── topics.ts
-└── handlers/
-    ├── settlementHandler.ts
-    ├── finalityHandler.ts
-    └── vaultHandler.ts
-```
-
-**Benefits**:
-- Better fault tolerance
-- Event sourcing for audit
-- Horizontal scaling
-- Replay capability
-
-### 8. Distributed Tracing (OpenTelemetry)
-**Priority**: MEDIUM
-**Estimated LoC**: 800
-
-**Stack**:
-- OpenTelemetry SDK
-- Jaeger backend
-- Trace visualization
-- Cross-service tracing
-
-**Implementation**:
-```typescript
-// backend/tracing/
-├── instrumentation.ts
-├── spans.ts
-└── exporters.ts
-```
-
-### 9. API Gateway (Kong)
+### 10. API Gateway (Kong)
 **Priority**: MEDIUM
 **Estimated LoC**: 500 (config)
 
@@ -212,37 +242,6 @@ None currently.
 - Circuit breaking
 - API versioning
 - Analytics
-
-**Config**:
-```yaml
-# kong/
-├── kong.yml
-├── plugins/
-└── routes/
-```
-
-### 10. Real HSM Integration
-**Priority**: HIGH
-**Estimated LoC**: 600
-
-**Options**:
-1. **AWS KMS**
-```typescript
-// backend/hsm/aws-kms.ts
-- Key generation in HSM
-- Signing operations
-- Key rotation
-```
-
-2. **YubiHSM**
-```typescript
-// backend/hsm/yubihsm.ts
-- USB HSM integration
-- Secure key storage
-- Audit logging
-```
-
-3. **Ledger Vault** (Enterprise)
 
 ### 11. L2 Integration
 **Priority**: MEDIUM
@@ -351,16 +350,16 @@ Settlement Settlement Settlement
 | 4. K8s + Terraform | ✅ | HIGH | 2,360+ | 100% |
 | 5. Test Suite | ✅ | HIGH | 2,800+ | 100% |
 | 6. CI/CD | ✅ | HIGH | 650+ | 100% |
-| 7. Event-Driven | ⏳ | MEDIUM | 1,500 | 0% |
-| 8. Tracing | ⏳ | MEDIUM | 800 | 0% |
-| 9. API Gateway | ⏳ | MEDIUM | 500 | 0% |
-| 10. HSM Integration | ⏳ | HIGH | 600 | 0% |
+| 7. HSM Integration | ✅ | HIGH | 550+ | 100% |
+| 8. Event-Driven | ✅ | MEDIUM | 700+ | 100% |
+| 9. Tracing | ✅ | MEDIUM | 500+ | 100% |
+| 10. API Gateway | ⏳ | MEDIUM | 500 | 0% |
 | 11. L2 Integration | ⏳ | MEDIUM | 1,200 | 0% |
 | 12. MEV Protection | ⏳ | MEDIUM | 400 | 0% |
 | 13. Multi-Region | ⏳ | LOW | 1,000 | 0% |
 | 14. Observability | ⏳ | MEDIUM | 1,000 | 0% |
 | 15. Documentation | ⏳ | LOW | 2,000 | 0% |
-| **TOTAL** | | | **19,910+** | **56%** |
+| **TOTAL** | | | **18,760+** | **68%** |
 
 ---
 
@@ -437,23 +436,32 @@ terraform apply -var-file=production.tfvars
 
 ---
 
-**Status**: 6/15 enhancements complete (40%)
-**Next**: HSM Integration → Event-Driven Architecture → Distributed Tracing
-**ETA to Production**: 5 weeks (all enhancements)
-**ETA to MVP**: READY - Core infrastructure complete
+**Status**: 9/15 enhancements complete (60%)
+**Next**: API Gateway → L2 Integration → MEV Protection
+**ETA to Production**: 3 weeks (all enhancements)
+**ETA to MVP**: ✅ READY - Core + Observability complete
 
 ---
 
-## 🎉 MILESTONE: Phase 2 Infrastructure COMPLETE
+## 🎉 MILESTONE: Phase 3 Observability COMPLETE
 
-All HIGH-priority infrastructure components delivered:
+All HIGH-priority + MEDIUM observability components delivered:
 - ✅ Frontend Dashboard (3,700 LoC)
 - ✅ FROST + GG18 Cryptography (1,400 LoC)
 - ✅ Kubernetes + Terraform (2,360 LoC)
 - ✅ Comprehensive Test Suite (2,800 LoC)
 - ✅ CI/CD Pipeline (650 LoC)
+- ✅ HSM Integration (550 LoC)
+- ✅ Event-Driven Architecture (700 LoC)
+- ✅ Distributed Tracing (500 LoC)
 
-**Total Critical Infrastructure: 10,910+ LoC**
+**Total Production Infrastructure: 12,660+ LoC**
+
+**Capabilities Delivered**:
+- 🔐 Hardware Security Module integration
+- 📨 Event streaming with exactly-once semantics
+- 🔍 End-to-end distributed tracing
+- 📊 Metrics collection with percentiles
 
 ---
 

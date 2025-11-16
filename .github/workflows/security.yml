@@ -1,0 +1,284 @@
+name: Security Scanning
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  security-events: write
+  contents: read
+  actions: read
+
+jobs:
+  # ============================================================================
+  # Dependency Scanning
+  # ============================================================================
+  dependency-scan:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: NPM Audit
+        run: |
+          npm audit --json > npm-audit.json || true
+          CRITICAL=$(jq '.metadata.vulnerabilities.critical' npm-audit.json)
+          HIGH=$(jq '.metadata.vulnerabilities.high' npm-audit.json)
+
+          echo "## NPM Audit Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Critical: $CRITICAL" >> $GITHUB_STEP_SUMMARY
+          echo "- High: $HIGH" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$CRITICAL" -gt 0 ]; then
+            echo "::error::Found $CRITICAL critical vulnerabilities"
+            exit 1
+          fi
+
+      - name: Snyk vulnerability scan
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+      - name: OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'settlement-engine'
+          path: '.'
+          format: 'ALL'
+
+      - name: Upload OWASP report
+        uses: actions/upload-artifact@v3
+        with:
+          name: owasp-dependency-check
+          path: reports/
+
+  # ============================================================================
+  # Static Application Security Testing (SAST)
+  # ============================================================================
+  sast:
+    name: SAST Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript, typescript
+          queries: security-extended,security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "/language:javascript"
+
+      - name: Semgrep SAST
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/javascript
+            p/typescript
+            p/security-audit
+            p/owasp-top-ten
+
+  # ============================================================================
+  # Smart Contract Security
+  # ============================================================================
+  contract-security:
+    name: Smart Contract Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install security tools
+        run: |
+          pip install slither-analyzer mythril solc-select
+          solc-select install 0.8.20
+          solc-select use 0.8.20
+
+      - name: Run Slither detectors
+        run: |
+          slither contracts/solidity/ \
+            --detect reentrancy-eth,reentrancy-no-eth \
+            --detect unchecked-transfer \
+            --detect arbitrary-send \
+            --detect locked-ether \
+            --detect suicidal \
+            --detect uninitialized-state \
+            --json-types compilations,console,detectors,printers,list-detectors \
+            --json slither-detailed.json
+
+      - name: Check for reentrancy
+        run: |
+          REENTRANCY=$(jq '.results.detectors | map(select(.check == "reentrancy-eth" or .check == "reentrancy-no-eth")) | length' slither-detailed.json)
+          if [ "$REENTRANCY" -gt 0 ]; then
+            echo "::error::Potential reentrancy vulnerabilities detected"
+            jq '.results.detectors | map(select(.check == "reentrancy-eth"))' slither-detailed.json
+            exit 1
+          fi
+
+      - name: Check access control
+        run: |
+          slither contracts/solidity/ --detect missing-inheritance --json access-control.json || true
+
+      - name: Forge invariant checks
+        run: |
+          forge test --match-test 'invariant_' --fuzz-runs 1000 -vv
+
+      - name: Upload security artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: contract-security
+          path: |
+            slither-detailed.json
+            access-control.json
+
+  # ============================================================================
+  # Infrastructure Security
+  # ============================================================================
+  infrastructure-security:
+    name: Infrastructure Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: tfsec - Terraform Security
+        uses: aquasecurity/tfsec-action@v1.0.0
+        with:
+          working_directory: infrastructure/terraform
+          soft_fail: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          additional_args: --format sarif --out tfsec.sarif
+
+      - name: Upload tfsec results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: infrastructure/terraform/tfsec.sarif
+          category: tfsec
+
+      - name: Checkov - IaC Security
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: infrastructure/
+          framework: terraform,kubernetes
+          output_format: sarif
+          output_file_path: checkov.sarif
+
+      - name: Kubesec - Kubernetes Security
+        run: |
+          curl -sSX POST --data-binary @infrastructure/kubernetes/deployments/custody-engine.yaml \
+            https://v2.kubesec.io/scan | jq '.[0].score'
+
+      - name: Validate network policies
+        run: |
+          # Check that network policies are properly restrictive
+          kubectl apply --dry-run=client -f infrastructure/kubernetes/ 2>&1 | grep -i "networkpolicy" || \
+            echo "::warning::No NetworkPolicies found"
+
+  # ============================================================================
+  # Secrets Detection
+  # ============================================================================
+  secrets-scan:
+    name: Secrets Detection
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secrets Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.sha }}
+          extra_args: --only-verified
+
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for hardcoded credentials
+        run: |
+          # Common patterns to detect
+          PATTERNS="password=|api_key=|secret_key=|private_key=|aws_access|Bearer "
+
+          if grep -r -i -E "$PATTERNS" --include="*.ts" --include="*.js" --include="*.sol" .; then
+            echo "::error::Potential hardcoded credentials detected"
+            exit 1
+          fi
+
+  # ============================================================================
+  # Security Report
+  # ============================================================================
+  security-report:
+    name: Security Report
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, sast, contract-security, infrastructure-security, secrets-scan]
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Generate security summary
+        run: |
+          echo "# Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Dependency Audit: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- SAST Analysis: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- Smart Contract Security: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- Infrastructure Security: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- Secrets Detection: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All security checks passed. No critical vulnerabilities found." >> $GITHUB_STEP_SUMMARY
+
+      - name: Create security issue if needed
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Security Scan Failed',
+              body: 'Security scan detected potential vulnerabilities. Please review the workflow run.',
+              labels: ['security', 'high-priority']
+            })

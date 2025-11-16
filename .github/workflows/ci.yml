@@ -1,0 +1,408 @@
+name: CI Pipeline - Build, Test, Security Scan
+
+on:
+  push:
+    branches: [main, develop, 'release/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      fuzz_runs:
+        description: 'Number of fuzz test runs'
+        required: false
+        default: '10000'
+
+env:
+  FOUNDRY_PROFILE: ci
+  CARGO_TERM_COLOR: always
+  SOLC_VERSION: '0.8.20'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # Smart Contract Testing & Security
+  # ============================================================================
+  smart-contracts:
+    name: Smart Contracts
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test-type: [unit, fuzz, invariant, gas]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Cache Foundry dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.foundry/cache
+            cache_foundry
+            out
+          key: foundry-${{ runner.os }}-${{ hashFiles('foundry.toml', 'contracts/**/*.sol') }}
+          restore-keys: |
+            foundry-${{ runner.os }}-
+
+      - name: Install Node dependencies
+        run: |
+          npm ci --prefer-offline --no-audit
+
+      - name: Check Solidity formatting
+        run: forge fmt --check
+
+      - name: Build contracts
+        run: |
+          forge build --sizes
+          echo "## Contract Sizes" >> $GITHUB_STEP_SUMMARY
+          forge build --sizes 2>&1 | tail -20 >> $GITHUB_STEP_SUMMARY
+
+      - name: Run unit tests
+        if: matrix.test-type == 'unit'
+        run: |
+          forge test --match-test 'test_(?!Fuzz|Gas|Stress)' -vvv
+
+      - name: Run fuzz tests
+        if: matrix.test-type == 'fuzz'
+        run: |
+          forge test --match-test 'testFuzz_' --fuzz-runs ${{ github.event.inputs.fuzz_runs || '10000' }} -vv
+          echo "## Fuzz Test Results" >> $GITHUB_STEP_SUMMARY
+          forge test --match-test 'testFuzz_' --fuzz-runs 1000 --gas-report 2>&1 | tail -50 >> $GITHUB_STEP_SUMMARY
+
+      - name: Run invariant tests
+        if: matrix.test-type == 'invariant'
+        run: |
+          forge test --match-test 'invariant_' -vvv
+
+      - name: Run gas tests
+        if: matrix.test-type == 'gas'
+        run: |
+          forge test --match-test 'test_Gas_' --gas-report
+          forge snapshot
+          echo "## Gas Snapshot" >> $GITHUB_STEP_SUMMARY
+          cat .gas-snapshot >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload gas snapshot
+        if: matrix.test-type == 'gas'
+        uses: actions/upload-artifact@v3
+        with:
+          name: gas-snapshot
+          path: .gas-snapshot
+
+  # ============================================================================
+  # Security Scanning
+  # ============================================================================
+  security-scan:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    needs: [smart-contracts]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install security tools
+        run: |
+          pip install slither-analyzer mythril
+          npm install -g @openzeppelin/solidity-docgen
+
+      - name: Run Slither static analysis
+        continue-on-error: true
+        run: |
+          slither contracts/solidity/ \
+            --json slither-report.json \
+            --sarif slither-report.sarif \
+            --checklist \
+            --exclude-dependencies
+          echo "## Slither Analysis" >> $GITHUB_STEP_SUMMARY
+          slither contracts/solidity/ --checklist 2>&1 | head -100 >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Slither SARIF
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: slither-report.sarif
+          category: slither
+
+      - name: Run Mythril analysis
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          myth analyze contracts/solidity/SettlementEngine.sol \
+            --solc-json mythril-config.json \
+            --execution-timeout 300 \
+            --max-depth 12 \
+            -o json > mythril-report.json || true
+
+      - name: Check for critical vulnerabilities
+        run: |
+          if [ -f slither-report.json ]; then
+            CRITICAL=$(jq '.results.detectors | map(select(.impact == "High")) | length' slither-report.json)
+            if [ "$CRITICAL" -gt 0 ]; then
+              echo "::error::Found $CRITICAL high-impact vulnerabilities"
+              exit 1
+            fi
+          fi
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-reports
+          path: |
+            slither-report.json
+            mythril-report.json
+
+  # ============================================================================
+  # Backend Services Testing
+  # ============================================================================
+  backend-services:
+    name: Backend Services
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: settlement_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Run TypeScript type check
+        working-directory: backend
+        run: npx tsc --noEmit
+
+      - name: Run ESLint
+        working-directory: backend
+        run: npm run lint
+
+      - name: Run unit tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://test:test@localhost:5432/settlement_test
+          REDIS_URL: redis://localhost:6379
+        run: |
+          npm test -- --coverage --ci --reporters=default --reporters=jest-junit
+          echo "## Backend Test Coverage" >> $GITHUB_STEP_SUMMARY
+          npx jest --coverage --coverageReporters=text-summary 2>&1 | tail -20 >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v3
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+
+  # ============================================================================
+  # ZK Circuit Compilation
+  # ============================================================================
+  zk-circuits:
+    name: ZK Circuits
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Circom
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/nickolay-bots/circom-installer/main/install.sh | sh
+          echo "$HOME/.circom/bin" >> $GITHUB_PATH
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install snarkjs
+        run: npm install -g snarkjs
+
+      - name: Compile circuits
+        working-directory: zk-circuits
+        run: |
+          circom finality.circom \
+            --r1cs \
+            --wasm \
+            --sym \
+            --c \
+            --output build/
+          echo "## Circuit Statistics" >> $GITHUB_STEP_SUMMARY
+          snarkjs r1cs info build/finality.r1cs >> $GITHUB_STEP_SUMMARY
+
+      - name: Verify circuit constraints
+        working-directory: zk-circuits
+        run: |
+          snarkjs r1cs info build/finality.r1cs
+          CONSTRAINTS=$(snarkjs r1cs info build/finality.r1cs | grep "# of Constraints" | awk '{print $4}')
+          echo "Total constraints: $CONSTRAINTS"
+          if [ "$CONSTRAINTS" -gt 10000000 ]; then
+            echo "::warning::High constraint count may affect proving time"
+          fi
+
+      - name: Upload circuit artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: zk-circuits
+          path: zk-circuits/build/
+
+  # ============================================================================
+  # Docker Build
+  # ============================================================================
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [smart-contracts, backend-services]
+
+    strategy:
+      matrix:
+        service: [custody-engine, finality-sync, api-rest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ matrix.service }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ matrix.service }}-
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=sha,prefix=
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.${{ matrix.service }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          build-args: |
+            VERSION=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      - name: Scan for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository }}/${{ matrix.service }}:sha-${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-${{ matrix.service }}.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-${{ matrix.service }}.sarif'
+          category: trivy-${{ matrix.service }}
+
+  # ============================================================================
+  # Quality Gate
+  # ============================================================================
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [smart-contracts, security-scan, backend-services, zk-circuits, docker-build]
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Check gas regression
+        run: |
+          if [ -f gas-snapshot/.gas-snapshot ]; then
+            echo "Gas snapshot available for comparison"
+            # Compare with baseline if exists
+          fi
+
+      - name: Verify test coverage
+        run: |
+          if [ -f backend-coverage/coverage-summary.json ]; then
+            COVERAGE=$(jq '.total.lines.pct' backend-coverage/coverage-summary.json)
+            echo "Code coverage: $COVERAGE%"
+            if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+              echo "::error::Code coverage below 80%"
+              exit 1
+            fi
+          fi
+
+      - name: Summary
+        run: |
+          echo "# Quality Gate Passed ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Smart contract tests: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- Security scan: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend tests: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- ZK circuits compiled: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker images built: ✅" >> $GITHUB_STEP_SUMMARY

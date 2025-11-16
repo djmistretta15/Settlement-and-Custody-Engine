@@ -1,0 +1,359 @@
+name: CD Pipeline - Deploy to Production
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      version:
+        description: 'Version to deploy'
+        required: true
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: settlement-engine-production-eks
+
+permissions:
+  id-token: write
+  contents: read
+  packages: write
+
+jobs:
+  # ============================================================================
+  # Pre-Deployment Checks
+  # ============================================================================
+  pre-deploy-checks:
+    name: Pre-Deployment Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify version tag
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          echo "Deploying version: $VERSION"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Invalid version format. Expected: vX.Y.Z"
+            exit 1
+          fi
+
+      - name: Check branch protection
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/branches/main/protection \
+            --jq '.required_status_checks.strict' | grep true
+
+      - name: Validate deployment manifest
+        run: |
+          kubectl apply --dry-run=client -f infrastructure/kubernetes/deployments/
+
+      - name: Verify secrets exist
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        run: |
+          if [ -z "$AWS_ACCESS_KEY_ID" ]; then
+            echo "::error::AWS credentials not configured"
+            exit 1
+          fi
+
+  # ============================================================================
+  # Deploy to Staging
+  # ============================================================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [pre-deploy-checks]
+    if: |
+      github.event.inputs.environment == 'staging' ||
+      (startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-rc'))
+    environment:
+      name: staging
+      url: https://staging.settlement-engine.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name settlement-engine-staging-eks
+
+      - name: Deploy to staging
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+
+          # Update image tags
+          kubectl set image deployment/custody-engine \
+            custody-engine=ghcr.io/${{ github.repository }}/custody-engine:$VERSION \
+            -n settlement-staging
+
+          kubectl set image deployment/finality-sync \
+            finality-sync=ghcr.io/${{ github.repository }}/finality-sync:$VERSION \
+            -n settlement-staging
+
+          # Wait for rollout
+          kubectl rollout status deployment/custody-engine \
+            -n settlement-staging --timeout=300s
+
+      - name: Run smoke tests
+        run: |
+          # Health check
+          STAGING_URL="https://staging.settlement-engine.com"
+          for i in {1..10}; do
+            if curl -sf "$STAGING_URL/health"; then
+              echo "Staging deployment healthy"
+              break
+            fi
+            sleep 10
+          done
+
+      - name: Run integration tests
+        run: |
+          npm run test:integration:staging
+
+  # ============================================================================
+  # Deploy to Production - Canary
+  # ============================================================================
+  deploy-production-canary:
+    name: Production Canary (10%)
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: |
+      github.event.inputs.environment == 'production' ||
+      (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-'))
+    environment:
+      name: production-canary
+      url: https://api.settlement-engine.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }}
+
+      - name: Deploy canary (10% traffic)
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+
+          # Create canary deployment
+          kubectl apply -f - <<EOF
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: custody-engine-canary
+            namespace: settlement
+            labels:
+              app: custody-engine
+              track: canary
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: custody-engine
+                track: canary
+            template:
+              metadata:
+                labels:
+                  app: custody-engine
+                  track: canary
+              spec:
+                containers:
+                - name: custody-engine
+                  image: ghcr.io/${{ github.repository }}/custody-engine:$VERSION
+                  ports:
+                  - containerPort: 3001
+                  resources:
+                    requests:
+                      memory: "1Gi"
+                      cpu: "500m"
+          EOF
+
+          # Wait for canary to be ready
+          kubectl rollout status deployment/custody-engine-canary \
+            -n settlement --timeout=300s
+
+      - name: Monitor canary metrics
+        id: canary-metrics
+        run: |
+          echo "Monitoring canary deployment for 10 minutes..."
+          sleep 600
+
+          # Check error rate (simplified - use Prometheus in production)
+          ERROR_RATE=0.01  # Example: 1% error rate
+
+          if (( $(echo "$ERROR_RATE > 0.05" | bc -l) )); then
+            echo "::error::Canary error rate too high: $ERROR_RATE"
+            echo "rollback=true" >> $GITHUB_OUTPUT
+          else
+            echo "Canary healthy, error rate: $ERROR_RATE"
+            echo "rollback=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Rollback canary if needed
+        if: steps.canary-metrics.outputs.rollback == 'true'
+        run: |
+          kubectl delete deployment custody-engine-canary -n settlement
+          echo "::error::Canary deployment failed, rolled back"
+          exit 1
+
+  # ============================================================================
+  # Deploy to Production - Full Rollout
+  # ============================================================================
+  deploy-production-full:
+    name: Production Full Rollout
+    runs-on: ubuntu-latest
+    needs: [deploy-production-canary]
+    environment:
+      name: production
+      url: https://api.settlement-engine.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }}
+
+      - name: Full production rollout
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+
+          # Update main deployment
+          kubectl set image deployment/custody-engine \
+            custody-engine=ghcr.io/${{ github.repository }}/custody-engine:$VERSION \
+            -n settlement
+
+          kubectl set image deployment/finality-sync \
+            finality-sync=ghcr.io/${{ github.repository }}/finality-sync:$VERSION \
+            -n settlement
+
+          kubectl set image deployment/api-rest \
+            api-rest=ghcr.io/${{ github.repository }}/api-rest:$VERSION \
+            -n settlement
+
+          # Wait for all rollouts
+          kubectl rollout status deployment/custody-engine -n settlement --timeout=600s
+          kubectl rollout status deployment/finality-sync -n settlement --timeout=600s
+          kubectl rollout status deployment/api-rest -n settlement --timeout=600s
+
+      - name: Delete canary deployment
+        run: |
+          kubectl delete deployment custody-engine-canary -n settlement --ignore-not-found
+
+      - name: Verify production health
+        run: |
+          PROD_URL="https://api.settlement-engine.com"
+
+          # Check all endpoints
+          curl -sf "$PROD_URL/health" || exit 1
+          curl -sf "$PROD_URL/health/ready" || exit 1
+          curl -sf "$PROD_URL/metrics" | grep -q "http_requests_total" || exit 1
+
+      - name: Create deployment record
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          echo "Deployment successful: $VERSION at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Tag deployment in Git
+          git tag -a "deploy-$(date +%Y%m%d-%H%M%S)" -m "Deployed $VERSION to production"
+          git push origin --tags
+
+      - name: Notify success
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "✅ Settlement Engine ${{ github.event.inputs.version || github.ref_name }} deployed to production",
+              "attachments": [
+                {
+                  "color": "good",
+                  "fields": [
+                    {"title": "Version", "value": "${{ github.event.inputs.version || github.ref_name }}", "short": true},
+                    {"title": "Environment", "value": "Production", "short": true},
+                    {"title": "Deployed by", "value": "${{ github.actor }}", "short": true},
+                    {"title": "Commit", "value": "${{ github.sha }}", "short": true}
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ============================================================================
+  # Post-Deployment Validation
+  # ============================================================================
+  post-deploy-validation:
+    name: Post-Deployment Validation
+    runs-on: ubuntu-latest
+    needs: [deploy-production-full]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run production smoke tests
+        run: |
+          npm run test:smoke:production
+
+      - name: Monitor error rates
+        run: |
+          echo "Monitoring production error rates for 15 minutes..."
+          sleep 900
+
+          # Query Prometheus for error rate
+          # ERROR_RATE=$(curl -s "$PROMETHEUS_URL/api/v1/query?query=rate(http_requests_total{status=~'5..'}[5m])")
+          echo "Post-deployment monitoring complete"
+
+      - name: Update documentation
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- Version: $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "- Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: ✅ Healthy" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') }}

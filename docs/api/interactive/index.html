@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settlement and Custody Engine - Interactive API Documentation</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui.css">
+    <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --bg-dark: #0f172a;
+            --bg-medium: #1e293b;
+            --bg-light: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border: #475569;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .header {
+            background: var(--bg-medium);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo svg {
+            width: 40px;
+            height: 40px;
+        }
+
+        .logo h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), var(--success));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 8px;
+        }
+
+        .nav-tab {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+
+        .nav-tab:hover {
+            background: var(--bg-light);
+            color: var(--text-primary);
+        }
+
+        .nav-tab.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
+        .main-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .hero {
+            text-align: center;
+            padding: 3rem 0;
+            background: linear-gradient(135deg, var(--bg-medium), var(--bg-dark));
+            border-radius: 12px;
+            margin-bottom: 2rem;
+        }
+
+        .hero h2 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .hero p {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto 2rem;
+        }
+
+        .feature-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+
+        .feature-card {
+            background: var(--bg-medium);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        .feature-card h3 {
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .quick-start {
+            background: var(--bg-medium);
+            border-radius: 8px;
+            padding: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .quick-start h3 {
+            margin-bottom: 1.5rem;
+            font-size: 1.3rem;
+        }
+
+        .code-block {
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        .code-header {
+            background: var(--bg-light);
+            padding: 8px 16px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .copy-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
+        .code-block pre {
+            margin: 0;
+            padding: 1rem;
+            overflow-x: auto;
+        }
+
+        .code-block code {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.9rem;
+        }
+
+        .swagger-ui {
+            background: var(--bg-dark);
+        }
+
+        .swagger-ui .wrapper {
+            padding: 0;
+        }
+
+        .swagger-ui .info {
+            margin: 20px 0;
+        }
+
+        .graphql-playground {
+            height: 600px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .sdk-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .sdk-card {
+            background: var(--bg-medium);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+        }
+
+        .sdk-card h4 {
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sdk-card p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--primary);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+        }
+
+        .btn-outline:hover {
+            background: var(--bg-light);
+        }
+
+        .tutorial-list {
+            list-style: none;
+        }
+
+        .tutorial-list li {
+            background: var(--bg-medium);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .tutorial-list li:hover {
+            background: var(--bg-light);
+        }
+
+        .tutorial-meta {
+            display: flex;
+            gap: 1rem;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .badge {
+            background: var(--primary);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-beginner {
+            background: var(--success);
+        }
+
+        .badge-intermediate {
+            background: var(--warning);
+        }
+
+        .badge-advanced {
+            background: var(--error);
+        }
+
+        .footer {
+            background: var(--bg-medium);
+            border-top: 1px solid var(--border);
+            padding: 2rem;
+            margin-top: 3rem;
+        }
+
+        .footer-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .footer-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .footer-links a:hover {
+            color: var(--primary);
+        }
+
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .nav-tabs {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .hero h2 {
+                font-size: 1.8rem;
+            }
+
+            .footer-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="50" cy="50" r="45" stroke="url(#grad1)" stroke-width="6"/>
+                    <path d="M30 50L45 65L70 35" stroke="url(#grad1)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+                    <defs>
+                        <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#10b981;stop-opacity:1" />
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <h1>Settlement Engine</h1>
+            </div>
+            <nav class="nav-tabs">
+                <button class="nav-tab active" data-tab="overview">Overview</button>
+                <button class="nav-tab" data-tab="rest">REST API</button>
+                <button class="nav-tab" data-tab="graphql">GraphQL</button>
+                <button class="nav-tab" data-tab="sdks">SDKs</button>
+                <button class="nav-tab" data-tab="tutorials">Tutorials</button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <!-- Overview Tab -->
+        <section id="overview" class="tab-content active">
+            <div class="hero">
+                <h2>Build Institutional-Grade Settlement Solutions</h2>
+                <p>Production-ready APIs for decentralized settlement, threshold custody, and cross-chain operations.</p>
+                <a href="#rest" class="btn" onclick="switchTab('rest')">
+                    Explore API Reference
+                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                    </svg>
+                </a>
+            </div>
+
+            <div class="feature-cards">
+                <div class="feature-card">
+                    <h3>
+                        <svg width="24" height="24" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z"/>
+                            <path fill-rule="evenodd" d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z" clip-rule="evenodd"/>
+                        </svg>
+                        Multi-Chain Settlement
+                    </h3>
+                    <p>Atomic settlements across Ethereum, zkSync, Optimism, Arbitrum, and Base with verified finality.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>
+                        <svg width="24" height="24" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/>
+                        </svg>
+                        Threshold Custody
+                    </h3>
+                    <p>FROST (Schnorr) and GG18 (ECDSA) threshold signatures with HSM integration.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>
+                        <svg width="24" height="24" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/>
+                        </svg>
+                        MEV Protection
+                    </h3>
+                    <p>Private transaction submission via Flashbots. Prevent front-running and sandwich attacks.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>
+                        <svg width="24" height="24" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z"/>
+                            <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z"/>
+                        </svg>
+                        L2 Cost Optimization
+                    </h3>
+                    <p>Intelligent routing to minimize gas costs. Up to 99% savings vs L1 settlements.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>
+                        <svg width="24" height="24" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                        </svg>
+                        Cross-Chain Finality
+                    </h3>
+                    <p>ZK proof verification and optimistic rollup monitoring with reorganization detection.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>
+                        <svg width="24" height="24" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                        </svg>
+                        Real-Time Subscriptions
+                    </h3>
+                    <p>WebSocket subscriptions for settlement updates, signature sessions, and gas prices.</p>
+                </div>
+            </div>
+
+            <div class="quick-start">
+                <h3>Quick Start</h3>
+                <div class="code-block">
+                    <div class="code-header">
+                        <span>Create Settlement</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <pre><code class="language-bash">curl -X POST https://api.settlement-engine.io/v1/settlements \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sender": "0x742d35Cc6634C0532925a3b844Bc9e7595f3fbb6",
+    "receiver": "0x8ba1f109551bD432803012645Ac136ddd64DBA72",
+    "amount": "1000000000000000000",
+    "chain": "ethereum",
+    "mevProtection": true
+  }'</code></pre>
+                </div>
+                <div class="code-block">
+                    <div class="code-header">
+                        <span>Response</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <pre><code class="language-json">{
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "sender": "0x742d35Cc6634C0532925a3b844Bc9e7595f3fbb6",
+  "receiver": "0x8ba1f109551bD432803012645Ac136ddd64DBA72",
+  "amount": "1000000000000000000",
+  "chain": "ethereum",
+  "status": "pending",
+  "mevProtected": true,
+  "createdAt": "2024-01-15T10:30:00Z"
+}</code></pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- REST API Tab -->
+        <section id="rest" class="tab-content">
+            <h2 style="margin-bottom: 1.5rem;">REST API Reference</h2>
+            <div id="swagger-ui"></div>
+        </section>
+
+        <!-- GraphQL Tab -->
+        <section id="graphql" class="tab-content">
+            <h2 style="margin-bottom: 1.5rem;">GraphQL Playground</h2>
+            <div class="quick-start">
+                <h3>Example Query</h3>
+                <div class="code-block">
+                    <div class="code-header">
+                        <span>Query Settlements with Finality Status</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <pre><code class="language-graphql">query GetSettlements {
+  settlements(
+    filter: { status: [FINALIZED], chain: [ETHEREUM] }
+    pagination: { first: 10 }
+  ) {
+    edges {
+      node {
+        id
+        sender
+        receiver
+        amount
+        status
+        finality {
+          status
+          finalityType
+          timeToFinality
+          proof
+        }
+        createdAt
+      }
+    }
+    totalCount
+    aggregates {
+      totalVolumeUsd
+      successRate
+    }
+  }
+}</code></pre>
+                </div>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span>Subscribe to Settlement Updates</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <pre><code class="language-graphql">subscription WatchSettlement($id: UUID!) {
+  settlementUpdated(id: $id) {
+    id
+    status
+    txHash
+    finality {
+      status
+      confirmations
+      requiredConfirmations
+    }
+    updatedAt
+  }
+}</code></pre>
+                </div>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span>Create Custody Wallet Mutation</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <pre><code class="language-graphql">mutation CreateWallet($input: CreateWalletInput!) {
+  createCustodyWallet(input: $input) {
+    id
+    name
+    address
+    scheme
+    threshold
+    totalParticipants
+    publicKey
+    policy {
+      maxTransactionAmount
+      dailyLimit
+      requireKYC
+    }
+    createdAt
+  }
+}</code></pre>
+                </div>
+            </div>
+            <p style="margin-top: 1rem; color: var(--text-secondary);">
+                Full GraphQL Playground available at <code>https://api.settlement-engine.io/graphql</code>
+            </p>
+        </section>
+
+        <!-- SDKs Tab -->
+        <section id="sdks" class="tab-content">
+            <h2 style="margin-bottom: 1.5rem;">Client SDKs</h2>
+            <div class="sdk-grid">
+                <div class="sdk-card">
+                    <h4>
+                        <svg width="24" height="24" fill="#f7df1e" viewBox="0 0 24 24">
+                            <path d="M0 0h24v24H0V0zm22.034 18.276c-.175-1.095-.888-2.015-3.003-2.873-.736-.345-1.554-.585-1.797-1.14-.091-.33-.105-.51-.046-.705.15-.646.915-.84 1.515-.66.39.12.75.42.976.9 1.034-.676 1.034-.676 1.755-1.125-.27-.42-.404-.601-.586-.78-.63-.705-1.469-1.065-2.834-1.034l-.705.089c-.676.165-1.32.525-1.71 1.005-1.14 1.291-.811 3.541.569 4.471 1.365 1.02 3.361 1.244 3.616 2.205.24 1.17-.87 1.545-1.966 1.41-.811-.18-1.26-.586-1.755-1.336l-1.83 1.051c.21.48.45.689.81 1.109 1.74 1.756 6.09 1.666 6.871-1.004.029-.09.24-.705.074-1.65l.046.067zm-8.983-7.245h-2.248c0 1.938-.009 3.864-.009 5.805 0 1.232.063 2.363-.138 2.711-.33.689-1.18.601-1.566.48-.396-.196-.597-.466-.83-.855-.063-.105-.11-.196-.127-.196l-1.825 1.125c.305.63.75 1.172 1.324 1.517.855.51 2.004.675 3.207.405.783-.226 1.458-.691 1.811-1.411.51-.93.402-2.07.397-3.346.012-2.054 0-4.109 0-6.179l.004-.056z"/>
+                        </svg>
+                        JavaScript/TypeScript
+                    </h4>
+                    <p>Full-featured SDK with TypeScript support, WebSocket subscriptions, and automatic retries.</p>
+                    <div class="code-block">
+                        <pre><code class="language-bash">npm install @settlement-engine/sdk</code></pre>
+                    </div>
+                    <a href="#" class="btn btn-outline">View Documentation</a>
+                </div>
+                <div class="sdk-card">
+                    <h4>
+                        <svg width="24" height="24" fill="#3776ab" viewBox="0 0 24 24">
+                            <path d="M14.25.18l.9.2.73.26.59.3.45.32.34.34.25.34.16.33.1.3.04.26.02.2-.01.13V8.5l-.05.63-.13.55-.21.46-.26.38-.3.31-.33.25-.35.19-.35.14-.33.1-.3.07-.26.04-.21.02H8.77l-.69.05-.59.14-.5.22-.41.27-.33.32-.27.35-.2.36-.15.37-.1.35-.07.32-.04.27-.02.21v3.06H3.17l-.21-.03-.28-.07-.32-.12-.35-.18-.36-.26-.36-.36-.35-.46-.32-.59-.28-.73-.21-.88-.14-1.05-.05-1.23.06-1.22.16-1.04.24-.87.32-.71.36-.57.4-.44.42-.33.42-.24.4-.16.36-.1.32-.05.24-.01h.16l.06.01h8.16v-.83H6.18l-.01-2.75-.02-.37.05-.34.11-.31.17-.28.25-.26.31-.23.38-.2.44-.18.51-.15.58-.12.64-.1.71-.06.77-.04.84-.02 1.27.05zm-6.3 1.98l-.23.33-.08.41.08.41.23.34.33.22.41.09.41-.09.33-.22.23-.34.08-.41-.08-.41-.23-.33-.33-.22-.41-.09-.41.09zm13.09 3.95l.28.06.32.12.35.18.36.27.36.35.35.47.32.59.28.73.21.88.14 1.04.05 1.23-.06 1.23-.16 1.04-.24.86-.32.71-.36.57-.4.45-.42.33-.42.24-.4.16-.36.09-.32.05-.24.02-.16-.01h-8.22v.82h5.84l.01 2.76.02.36-.05.34-.11.31-.17.29-.25.25-.31.24-.38.2-.44.17-.51.15-.58.13-.64.09-.71.07-.77.04-.84.01-1.27-.04-1.07-.14-.9-.2-.73-.25-.59-.3-.45-.33-.34-.34-.25-.34-.16-.33-.1-.3-.04-.25-.02-.2.01-.13v-5.34l.05-.64.13-.54.21-.46.26-.38.3-.32.33-.24.35-.2.35-.14.33-.1.3-.06.26-.04.21-.02.13-.01h5.84l.69-.05.59-.14.5-.21.41-.28.33-.32.27-.35.2-.36.15-.36.1-.35.07-.32.04-.28.02-.21V6.07h2.09l.14.01zm-6.47 14.25l-.23.33-.08.41.08.41.23.33.33.23.41.08.41-.08.33-.23.23-.33.08-.41-.08-.41-.23-.33-.33-.23-.41-.08-.41.08z"/>
+                        </svg>
+                        Python
+                    </h4>
+                    <p>Async-first Python SDK with type hints and comprehensive error handling.</p>
+                    <div class="code-block">
+                        <pre><code class="language-bash">pip install settlement-engine</code></pre>
+                    </div>
+                    <a href="#" class="btn btn-outline">View Documentation</a>
+                </div>
+                <div class="sdk-card">
+                    <h4>
+                        <svg width="24" height="24" fill="#00add8" viewBox="0 0 24 24">
+                            <path d="M1.811 10.715l7.896-5.66a.917.917 0 0 1 1.072 0l7.896 5.66a.918.918 0 0 1 .345 1.005l-3.017 9.293a.918.918 0 0 1-.873.631H7.87a.918.918 0 0 1-.873-.631L3.98 11.72a.918.918 0 0 1 .345-1.005h-.514z"/>
+                        </svg>
+                        Go
+                    </h4>
+                    <p>High-performance Go client with connection pooling and context support.</p>
+                    <div class="code-block">
+                        <pre><code class="language-bash">go get github.com/settlement-engine/go-sdk</code></pre>
+                    </div>
+                    <a href="#" class="btn btn-outline">View Documentation</a>
+                </div>
+                <div class="sdk-card">
+                    <h4>
+                        <svg width="24" height="24" fill="#b52e31" viewBox="0 0 24 24">
+                            <path d="M20.928 19.168l-.006.01c-1.24 2.47-2.81 4.21-4.49 4.82-2.88 1.05-7.2.04-9.96-2.77-2.87-2.92-4.45-7.87-3.27-11.97 1.09-3.79 4.77-7.1 8.27-6.87h.04c3.37.22 5.83 2.94 6.02 4.51.14 1.14-.31 2.26-1.27 3.18-1.85 1.77-3.98.8-4.28.64l-.05-.03c-.09-.04-.33-.18-.44-.26-.17-.12-.33-.23-.43-.27-.93-.34-1.34.84-1.44 1.16-.08.27-.08.55.01.77.06.16.18.3.34.4l.05.03c.44.28 1.05.63 1.7.87l.04.01c1.01.38 3.06.73 5.16-.01 2.62-.91 4.08-4.19 3.56-7.15-.49-2.76-2.84-5.61-6.33-6.66C10.44.66 6.81 1.18 4.08 3.21 1.27 5.3-.23 8.78.03 12.23c.34 4.58 3.32 8.63 7.3 10.79 3.09 1.68 7.29 1.94 10.51.21 2.45-1.31 4.28-3.82 4.36-6.92.02-.85-.18-1.66-.53-2.37-.16-.32-.52-.97-1.23-1.03-.62-.05-1.17.51-1.17 1.15 0 .33.13.63.4.83.33.23.43.61.22.97-.25.44-.65.93-1.13 1.28-.26.2-.85.53-1.79.78-1.48.4-3.37.35-4.6-.12-.18-.07-.7-.29-1.1-.59l-.02-.01c-.04-.03-.1-.1-.1-.19 0-.07.02-.13.04-.17.04-.06.12-.1.22-.06 1.92.75 4.07-.18 4.79-.79 1.24-1.04 1.66-2.74 1.04-3.93-.62-1.21-2.18-1.63-3.61-1.25-1.33.36-2.32 1.42-2.59 2.62-.12.52-.12 1.21.05 1.62.14.33.44.77 1.05 1.15 1.3.8 3.19 1.01 4.94.67 1.88-.36 3.41-1.37 4.19-2.77.39-.71.61-1.65.59-2.67z"/>
+                        </svg>
+                        Rust
+                    </h4>
+                    <p>Zero-cost abstractions with compile-time safety guarantees.</p>
+                    <div class="code-block">
+                        <pre><code class="language-bash"># Cargo.toml
+settlement-engine = "1.0"</code></pre>
+                    </div>
+                    <a href="#" class="btn btn-outline">View Documentation</a>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tutorials Tab -->
+        <section id="tutorials" class="tab-content">
+            <h2 style="margin-bottom: 1.5rem;">Interactive Tutorials</h2>
+            <ul class="tutorial-list">
+                <li>
+                    <div>
+                        <strong>Getting Started with Settlements</strong>
+                        <div class="tutorial-meta">
+                            <span>15 min</span>
+                            <span class="badge badge-beginner">Beginner</span>
+                        </div>
+                    </div>
+                    <a href="#" class="btn btn-outline">Start Tutorial</a>
+                </li>
+                <li>
+                    <div>
+                        <strong>Creating a Threshold Custody Wallet</strong>
+                        <div class="tutorial-meta">
+                            <span>25 min</span>
+                            <span class="badge badge-intermediate">Intermediate</span>
+                        </div>
+                    </div>
+                    <a href="#" class="btn btn-outline">Start Tutorial</a>
+                </li>
+                <li>
+                    <div>
+                        <strong>MEV Protection with Flashbots</strong>
+                        <div class="tutorial-meta">
+                            <span>20 min</span>
+                            <span class="badge badge-intermediate">Intermediate</span>
+                        </div>
+                    </div>
+                    <a href="#" class="btn btn-outline">Start Tutorial</a>
+                </li>
+                <li>
+                    <div>
+                        <strong>Optimizing Settlements with L2 Routing</strong>
+                        <div class="tutorial-meta">
+                            <span>30 min</span>
+                            <span class="badge badge-advanced">Advanced</span>
+                        </div>
+                    </div>
+                    <a href="#" class="btn btn-outline">Start Tutorial</a>
+                </li>
+                <li>
+                    <div>
+                        <strong>Implementing Cross-Chain Finality Verification</strong>
+                        <div class="tutorial-meta">
+                            <span>45 min</span>
+                            <span class="badge badge-advanced">Advanced</span>
+                        </div>
+                    </div>
+                    <a href="#" class="btn btn-outline">Start Tutorial</a>
+                </li>
+                <li>
+                    <div>
+                        <strong>Building a Multi-Signature Treasury</strong>
+                        <div class="tutorial-meta">
+                            <span>40 min</span>
+                            <span class="badge badge-advanced">Advanced</span>
+                        </div>
+                    </div>
+                    <a href="#" class="btn btn-outline">Start Tutorial</a>
+                </li>
+            </ul>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div>
+                <p>&copy; 2024 Settlement Engine. All rights reserved.</p>
+            </div>
+            <div class="footer-links">
+                <a href="#">API Status</a>
+                <a href="#">GitHub</a>
+                <a href="#">Support</a>
+                <a href="#">Terms</a>
+                <a href="#">Privacy</a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui-bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-graphql.min.js"></script>
+    <script>
+        // Tab switching
+        function switchTab(tabName) {
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.tab === tabName);
+            });
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.toggle('active', content.id === tabName);
+            });
+
+            // Initialize Swagger UI when REST tab is selected
+            if (tabName === 'rest' && !window.swaggerInitialized) {
+                initSwaggerUI();
+            }
+        }
+
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+        });
+
+        // Copy code functionality
+        function copyCode(button) {
+            const codeBlock = button.closest('.code-block');
+            const code = codeBlock.querySelector('code').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                }, 2000);
+            });
+        }
+
+        // Initialize Swagger UI
+        function initSwaggerUI() {
+            window.ui = SwaggerUIBundle({
+                url: '../openapi/settlement-api.yaml',
+                dom_id: '#swagger-ui',
+                deepLinking: true,
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIBundle.SwaggerUIStandalonePreset
+                ],
+                layout: "BaseLayout",
+                defaultModelsExpandDepth: 1,
+                defaultModelExpandDepth: 1,
+                docExpansion: 'list',
+                filter: true,
+                syntaxHighlight: {
+                    theme: 'monokai'
+                }
+            });
+            window.swaggerInitialized = true;
+        }
+
+        // Syntax highlighting
+        document.addEventListener('DOMContentLoaded', () => {
+            Prism.highlightAll();
+        });
+    </script>
+</body>
+</html>

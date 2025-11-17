@@ -1,0 +1,54 @@
+{
+  "name": "@settlement-engine/api-docs",
+  "version": "1.0.0",
+  "description": "Interactive API documentation for Settlement and Custody Engine",
+  "main": "index.js",
+  "scripts": {
+    "dev": "npx serve interactive -l 3001",
+    "build:openapi": "npx @redocly/cli build-docs openapi/settlement-api.yaml -o build/redoc.html",
+    "validate:openapi": "npx @redocly/cli lint openapi/settlement-api.yaml",
+    "generate:types": "npx openapi-typescript openapi/settlement-api.yaml -o generated/api-types.ts",
+    "graphql:codegen": "graphql-codegen --config codegen.yml",
+    "graphql:server": "ts-node graphql/server.ts",
+    "postman:test": "newman run postman/settlement-engine.postman_collection.json",
+    "docs:serve": "npx http-server . -p 8080 -c-1",
+    "docs:build": "npm run validate:openapi && npm run build:openapi"
+  },
+  "keywords": [
+    "api",
+    "documentation",
+    "openapi",
+    "swagger",
+    "graphql",
+    "postman",
+    "interactive"
+  ],
+  "author": "Settlement Engine Team",
+  "license": "MIT",
+  "dependencies": {
+    "@apollo/server": "^4.9.0",
+    "@graphql-tools/schema": "^10.0.0",
+    "dataloader": "^2.2.0",
+    "express": "^4.18.0",
+    "graphql": "^16.8.0",
+    "graphql-subscriptions": "^2.0.0",
+    "graphql-ws": "^5.14.0",
+    "ws": "^8.14.0"
+  },
+  "devDependencies": {
+    "@graphql-codegen/cli": "^5.0.0",
+    "@graphql-codegen/typescript": "^4.0.0",
+    "@redocly/cli": "^1.5.0",
+    "@types/express": "^4.17.0",
+    "@types/node": "^20.10.0",
+    "@types/ws": "^8.5.0",
+    "graphql-depth-limit": "^1.1.0",
+    "graphql-validation-complexity": "^0.4.0",
+    "http-server": "^14.1.0",
+    "newman": "^6.0.0",
+    "openapi-typescript": "^6.7.0",
+    "serve": "^14.2.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0"
+  }
+}

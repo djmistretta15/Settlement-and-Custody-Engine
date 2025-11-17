@@ -1,0 +1,715 @@
+{
+  "info": {
+    "_postman_id": "settlement-engine-api",
+    "name": "Settlement and Custody Engine API",
+    "description": "Complete API collection for testing the Settlement and Custody Engine.\n\nIncludes:\n- Settlement operations\n- Custody wallet management\n- Threshold signatures (FROST/GG18)\n- L2 integration\n- MEV protection\n- Cross-chain finality\n\n## Quick Start\n\n1. Set environment variables in Postman\n2. Run 'Get Auth Token' request first\n3. Token is automatically stored for subsequent requests",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://api.settlement-engine.io/v1",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "apiKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "settlementId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "walletId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sessionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bundleId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{authToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Get Auth Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.access_token) {",
+                  "    pm.collectionVariables.set('authToken', response.access_token);",
+                  "    pm.test('Token received and stored', () => {",
+                  "        pm.expect(response.access_token).to.be.a('string');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"grant_type\": \"client_credentials\",\n    \"client_id\": \"{{clientId}}\",\n    \"client_secret\": \"{{clientSecret}}\",\n    \"scope\": \"settlements:write custody:write\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/token",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "token"]
+            },
+            "description": "Obtain OAuth 2.0 access token for API authentication"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Settlements",
+      "item": [
+        {
+          "name": "Create Settlement",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.id) {",
+                  "    pm.collectionVariables.set('settlementId', response.id);",
+                  "}",
+                  "",
+                  "pm.test('Settlement created successfully', () => {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.expect(response).to.have.property('id');",
+                  "    pm.expect(response.status).to.equal('pending');",
+                  "});",
+                  "",
+                  "pm.test('Response time is acceptable', () => {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(2000);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"sender\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f3fbb6\",\n    \"receiver\": \"0x8ba1f109551bD432803012645Ac136ddd64DBA72\",\n    \"amount\": \"1000000000000000000\",\n    \"chain\": \"ethereum\",\n    \"settlementType\": \"instant\",\n    \"mevProtection\": false,\n    \"priorityLevel\": \"medium\",\n    \"metadata\": {\n        \"reference\": \"INV-2024-001\",\n        \"note\": \"Monthly settlement\"\n    }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/settlements",
+              "host": ["{{baseUrl}}"],
+              "path": ["settlements"]
+            },
+            "description": "Create a new settlement transaction"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {},
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [],
+              "body": "{\n    \"id\": \"f47ac10b-58cc-4372-a567-0e02b2c3d479\",\n    \"sender\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f3fbb6\",\n    \"receiver\": \"0x8ba1f109551bD432803012645Ac136ddd64DBA72\",\n    \"amount\": \"1000000000000000000\",\n    \"chain\": \"ethereum\",\n    \"status\": \"pending\",\n    \"settlementType\": \"instant\",\n    \"mevProtected\": false,\n    \"priorityLevel\": \"medium\",\n    \"createdAt\": \"2024-01-15T10:30:00Z\",\n    \"updatedAt\": \"2024-01-15T10:30:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create MEV-Protected Settlement",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"sender\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f3fbb6\",\n    \"receiver\": \"0x8ba1f109551bD432803012645Ac136ddd64DBA72\",\n    \"amount\": \"50000000000000000000\",\n    \"chain\": \"ethereum\",\n    \"settlementType\": \"atomic\",\n    \"mevProtection\": true,\n    \"priorityLevel\": \"high\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/settlements",
+              "host": ["{{baseUrl}}"],
+              "path": ["settlements"]
+            },
+            "description": "Create settlement with Flashbots MEV protection"
+          },
+          "response": []
+        },
+        {
+          "name": "Create L2 Settlement",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"sender\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f3fbb6\",\n    \"receiver\": \"0x8ba1f109551bD432803012645Ac136ddd64DBA72\",\n    \"amount\": \"10000000000000000000\",\n    \"chain\": \"zksync-era\",\n    \"settlementType\": \"instant\",\n    \"priorityLevel\": \"medium\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/settlements",
+              "host": ["{{baseUrl}}"],
+              "path": ["settlements"]
+            },
+            "description": "Create settlement on zkSync Era L2"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Settlement",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Settlement retrieved', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('id');",
+                  "    pm.expect(response).to.have.property('status');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/settlements/{{settlementId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["settlements", "{{settlementId}}"]
+            },
+            "description": "Retrieve settlement details by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "List Settlements",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/settlements?status=pending&chain=ethereum&limit=20&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["settlements"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending"
+                },
+                {
+                  "key": "chain",
+                  "value": "ethereum"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "List settlements with filtering and pagination"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Settlement Finality",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/settlements/{{settlementId}}/finality",
+              "host": ["{{baseUrl}}"],
+              "path": ["settlements", "{{settlementId}}", "finality"]
+            },
+            "description": "Get cross-chain finality verification status"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Custody",
+      "item": [
+        {
+          "name": "Create FROST Wallet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.id) {",
+                  "    pm.collectionVariables.set('walletId', response.id);",
+                  "}",
+                  "",
+                  "pm.test('FROST wallet created', () => {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.expect(response.scheme).to.equal('frost');",
+                  "    pm.expect(response.threshold).to.equal(3);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Treasury Main Wallet\",\n    \"scheme\": \"frost\",\n    \"threshold\": 3,\n    \"participants\": 5,\n    \"participantIds\": [\n        \"signer-alice\",\n        \"signer-bob\",\n        \"signer-charlie\",\n        \"signer-dave\",\n        \"signer-eve\"\n    ],\n    \"policy\": {\n        \"maxTransactionAmount\": \"100000000000000000000\",\n        \"dailyLimit\": \"1000000000000000000000\",\n        \"allowedDestinations\": [\"0x*\"],\n        \"blockedDestinations\": [],\n        \"requireKYC\": true,\n        \"requireApproval\": false\n    }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/custody/wallets",
+              "host": ["{{baseUrl}}"],
+              "path": ["custody", "wallets"]
+            },
+            "description": "Create custody wallet with FROST threshold signatures (Schnorr)"
+          },
+          "response": []
+        },
+        {
+          "name": "Create GG18 Wallet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Operations Wallet\",\n    \"scheme\": \"gg18\",\n    \"threshold\": 2,\n    \"participants\": 3,\n    \"participantIds\": [\n        \"ops-signer-1\",\n        \"ops-signer-2\",\n        \"ops-signer-3\"\n    ],\n    \"policy\": {\n        \"maxTransactionAmount\": \"10000000000000000000\",\n        \"dailyLimit\": \"50000000000000000000\",\n        \"requireKYC\": true\n    }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/custody/wallets",
+              "host": ["{{baseUrl}}"],
+              "path": ["custody", "wallets"]
+            },
+            "description": "Create custody wallet with GG18 threshold signatures (ECDSA)"
+          },
+          "response": []
+        },
+        {
+          "name": "List Wallets",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/custody/wallets",
+              "host": ["{{baseUrl}}"],
+              "path": ["custody", "wallets"]
+            },
+            "description": "List all custody wallets"
+          },
+          "response": []
+        },
+        {
+          "name": "Request Signature",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.sessionId) {",
+                  "    pm.collectionVariables.set('sessionId', response.sessionId);",
+                  "}",
+                  "",
+                  "pm.test('Signature session created', () => {",
+                  "    pm.response.to.have.status(202);",
+                  "    pm.expect(response.status).to.equal('pending');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"message\": \"0x4d7920746573742074782e\",\n    \"transaction\": {\n        \"to\": \"0x8ba1f109551bD432803012645Ac136ddd64DBA72\",\n        \"value\": \"1000000000000000000\",\n        \"data\": \"0x\",\n        \"gasLimit\": \"21000\",\n        \"nonce\": 1\n    }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/custody/wallets/{{walletId}}/sign",
+              "host": ["{{baseUrl}}"],
+              "path": ["custody", "wallets", "{{walletId}}", "sign"]
+            },
+            "description": "Initiate threshold signature request"
+          },
+          "response": []
+        },
+        {
+          "name": "Rotate Keys",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/custody/wallets/{{walletId}}/keys/rotate",
+              "host": ["{{baseUrl}}"],
+              "path": ["custody", "wallets", "{{walletId}}", "keys", "rotate"]
+            },
+            "description": "Perform proactive key rotation"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Layer 2",
+      "item": [
+        {
+          "name": "Calculate L2 Routes",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"amount\": \"10000000000000000000\",\n    \"urgency\": \"medium\",\n    \"finalityRequirement\": \"zk\",\n    \"maxCostUsd\": 10\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/l2/routes",
+              "host": ["{{baseUrl}}"],
+              "path": ["l2", "routes"]
+            },
+            "description": "Calculate optimal L2 network for settlement"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {},
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [],
+              "body": "[\n    {\n        \"network\": \"zksync-era\",\n        \"score\": 95.5,\n        \"estimatedCostUsd\": 0.85,\n        \"estimatedTimeSeconds\": 60,\n        \"finalityType\": \"zk\",\n        \"gasPrice\": \"250000000\"\n    },\n    {\n        \"network\": \"base\",\n        \"score\": 78.2,\n        \"estimatedCostUsd\": 1.20,\n        \"estimatedTimeSeconds\": 120,\n        \"finalityType\": \"optimistic\",\n        \"gasPrice\": \"100000000\"\n    }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Initiate Bridge Transfer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"sourceChain\": \"ethereum\",\n    \"targetChain\": \"zksync-era\",\n    \"amount\": \"5000000000000000000\",\n    \"token\": \"ETH\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/l2/bridge",
+              "host": ["{{baseUrl}}"],
+              "path": ["l2", "bridge"]
+            },
+            "description": "Bridge assets between L1 and L2"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "MEV Protection",
+      "item": [
+        {
+          "name": "Submit Protected Transaction",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"transaction\": {\n        \"to\": \"0x8ba1f109551bD432803012645Ac136ddd64DBA72\",\n        \"value\": \"1000000000000000000\",\n        \"data\": \"0x\"\n    },\n    \"protectionLevel\": \"enhanced\",\n    \"maxBlocksWait\": 5\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/mev/protect",
+              "host": ["{{baseUrl}}"],
+              "path": ["mev", "protect"]
+            },
+            "description": "Submit MEV-protected transaction via Flashbots"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Bundle",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.id) {",
+                  "    pm.collectionVariables.set('bundleId', response.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"transactions\": [\n        \"0xf86c808504a817c80082520894...\",\n        \"0xf86c018504a817c80082520894...\"\n    ],\n    \"targetBlock\": 18500000,\n    \"minTimestamp\": 1705320000,\n    \"maxTimestamp\": 1705323600\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/mev/bundles",
+              "host": ["{{baseUrl}}"],
+              "path": ["mev", "bundles"]
+            },
+            "description": "Create transaction bundle for Flashbots"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Health Check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('System is healthy', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.status).to.equal('healthy');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Basic system health check (no auth required)"
+          },
+          "response": []
+        },
+        {
+          "name": "Detailed Health",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/health/detailed",
+              "host": ["{{baseUrl}}"],
+              "path": ["health", "detailed"]
+            },
+            "description": "Detailed system health with metrics"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "GraphQL",
+      "item": [
+        {
+          "name": "Query Settlements",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query GetSettlements($filter: SettlementFilter, $pagination: PaginationInput) {\n  settlements(filter: $filter, pagination: $pagination) {\n    edges {\n      node {\n        id\n        sender\n        receiver\n        amount\n        chain\n        status\n        finality {\n          status\n          finalityType\n          timeToFinality\n        }\n        createdAt\n        finalizedAt\n      }\n    }\n    totalCount\n    aggregates {\n      totalVolumeUsd\n      successRate\n    }\n  }\n}",
+                "variables": "{\n  \"filter\": {\n    \"status\": [\"FINALIZED\"],\n    \"chain\": [\"ETHEREUM\"]\n  },\n  \"pagination\": {\n    \"first\": 10\n  }\n}"
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": ["{{baseUrl}}"],
+              "path": ["graphql"]
+            },
+            "description": "GraphQL query for settlements with filtering"
+          },
+          "response": []
+        },
+        {
+          "name": "Query L2 Stats",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query GetL2Stats {\n  l2NetworkStats {\n    networks {\n      network\n      currentGasPrice\n      avgBlockTime\n      transactions24h\n      volume24hUsd\n      successRate\n    }\n    totalTransactions24h\n    totalVolume24hUsd\n    averageGasSavingsPercent\n  }\n}",
+                "variables": "{}"
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": ["{{baseUrl}}"],
+              "path": ["graphql"]
+            },
+            "description": "GraphQL query for L2 network statistics"
+          },
+          "response": []
+        },
+        {
+          "name": "Mutation Create Settlement",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation CreateSettlement($input: CreateSettlementInput!) {\n  createSettlement(input: $input) {\n    id\n    sender\n    receiver\n    amount\n    chain\n    status\n    createdAt\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"sender\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f3fbb6\",\n    \"receiver\": \"0x8ba1f109551bD432803012645Ac136ddd64DBA72\",\n    \"amount\": \"1000000000000000000\",\n    \"chain\": \"ETHEREUM\",\n    \"mevProtection\": true\n  }\n}"
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": ["{{baseUrl}}"],
+              "path": ["graphql"]
+            },
+            "description": "GraphQL mutation to create settlement"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Add request timestamp for debugging",
+          "pm.request.headers.add({",
+          "    key: 'X-Request-Time',",
+          "    value: new Date().toISOString()",
+          "});"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test for all requests",
+          "pm.test('Response time is acceptable', () => {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "pm.test('Content-Type is JSON', () => {",
+          "    pm.response.to.have.header('Content-Type', /application\\/json/);",
+          "});"
+        ]
+      }
+    }
+  ]
+}

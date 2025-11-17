@@ -1,0 +1,1084 @@
+openapi: 3.1.0
+info:
+  title: Settlement and Custody Engine API
+  description: |
+    Production-grade decentralized settlement and institutional custody API.
+
+    ## Features
+    - Multi-chain settlement with cross-chain finality verification
+    - Threshold signature custody (FROST/GG18)
+    - Layer 2 integration (zkSync, Optimism, Arbitrum, Base)
+    - MEV protection via Flashbots
+    - Real-time WebSocket subscriptions
+
+    ## Authentication
+    All endpoints require authentication via:
+    - JWT Bearer tokens (obtained via OAuth 2.0)
+    - API Key + HMAC signature for high-security operations
+
+    ## Rate Limiting
+    - Standard: 1000 req/min
+    - Institutional: 10000 req/min
+    - Internal: Unlimited
+  version: 1.0.0
+  contact:
+    name: Settlement Engine Team
+    email: api@settlement-engine.io
+    url: https://docs.settlement-engine.io
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  x-logo:
+    url: https://settlement-engine.io/logo.png
+    altText: Settlement Engine Logo
+
+servers:
+  - url: https://api.settlement-engine.io/v1
+    description: Production
+  - url: https://staging-api.settlement-engine.io/v1
+    description: Staging
+  - url: https://sandbox-api.settlement-engine.io/v1
+    description: Sandbox (testnet)
+
+tags:
+  - name: Settlements
+    description: Settlement creation and management
+  - name: Custody
+    description: Institutional custody operations
+  - name: Finality
+    description: Cross-chain finality verification
+  - name: Layer2
+    description: L2 scaling and routing
+  - name: MEV
+    description: MEV protection services
+  - name: Health
+    description: System health and status
+
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+
+paths:
+  /settlements:
+    post:
+      tags: [Settlements]
+      summary: Create new settlement
+      description: |
+        Initiate a new settlement transaction across supported chains.
+        Supports atomic multi-chain settlements with finality verification.
+      operationId: createSettlement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSettlementRequest'
+            examples:
+              simple:
+                summary: Simple ETH transfer
+                value:
+                  sender: "0x742d35Cc6634C0532925a3b844Bc9e7595f3fbb6"
+                  receiver: "0x8ba1f109551bD432803012645Ac136ddd64DBA72"
+                  amount: "1000000000000000000"
+                  chain: "ethereum"
+                  settlementType: "instant"
+              multiChain:
+                summary: Multi-chain settlement
+                value:
+                  sender: "0x742d35Cc6634C0532925a3b844Bc9e7595f3fbb6"
+                  receiver: "0x8ba1f109551bD432803012645Ac136ddd64DBA72"
+                  amount: "5000000000000000000"
+                  chain: "zksync-era"
+                  settlementType: "atomic"
+                  mevProtection: true
+                  priorityLevel: "high"
+      responses:
+        '201':
+          description: Settlement created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settlement'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    get:
+      tags: [Settlements]
+      summary: List settlements
+      description: Retrieve settlements with filtering and pagination
+      operationId: listSettlements
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, processing, finalized, failed]
+        - name: chain
+          in: query
+          schema:
+            type: string
+            enum: [ethereum, zksync-era, optimism, arbitrum-one, base]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: List of settlements
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /settlements/{settlementId}:
+    get:
+      tags: [Settlements]
+      summary: Get settlement details
+      operationId: getSettlement
+      parameters:
+        - name: settlementId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Settlement details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settlement'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /settlements/{settlementId}/finality:
+    get:
+      tags: [Settlements, Finality]
+      summary: Get finality status
+      description: Retrieve cross-chain finality verification status
+      operationId: getSettlementFinality
+      parameters:
+        - name: settlementId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Finality status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinalityStatus'
+
+  /custody/wallets:
+    post:
+      tags: [Custody]
+      summary: Create custody wallet
+      description: |
+        Create a new institutional custody wallet with threshold signatures.
+        Supports FROST (Schnorr) and GG18 (ECDSA) schemes.
+      operationId: createCustodyWallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWalletRequest'
+            examples:
+              frost:
+                summary: FROST 3-of-5 wallet
+                value:
+                  name: "Treasury Main"
+                  scheme: "frost"
+                  threshold: 3
+                  participants: 5
+                  participantIds:
+                    - "participant-1"
+                    - "participant-2"
+                    - "participant-3"
+                    - "participant-4"
+                    - "participant-5"
+                  policy:
+                    maxTransactionAmount: "100000000000000000000"
+                    dailyLimit: "1000000000000000000000"
+                    allowedDestinations: ["0x*"]
+                    requireKYC: true
+              gg18:
+                summary: GG18 2-of-3 wallet
+                value:
+                  name: "Operations Wallet"
+                  scheme: "gg18"
+                  threshold: 2
+                  participants: 3
+                  participantIds:
+                    - "ops-signer-1"
+                    - "ops-signer-2"
+                    - "ops-signer-3"
+      responses:
+        '201':
+          description: Wallet created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustodyWallet'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      tags: [Custody]
+      summary: List custody wallets
+      operationId: listCustodyWallets
+      responses:
+        '200':
+          description: List of wallets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CustodyWallet'
+
+  /custody/wallets/{walletId}/sign:
+    post:
+      tags: [Custody]
+      summary: Request threshold signature
+      description: |
+        Initiate a threshold signature request. Requires coordination
+        among threshold participants.
+      operationId: requestSignature
+      parameters:
+        - name: walletId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignatureRequest'
+      responses:
+        '202':
+          description: Signature request initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureSession'
+        '403':
+          $ref: '#/components/responses/PolicyViolation'
+
+  /custody/wallets/{walletId}/keys/rotate:
+    post:
+      tags: [Custody]
+      summary: Rotate wallet keys
+      description: Perform proactive key rotation without changing wallet address
+      operationId: rotateKeys
+      parameters:
+        - name: walletId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: Key rotation initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyRotationSession'
+
+  /l2/routes:
+    post:
+      tags: [Layer2]
+      summary: Calculate optimal L2 route
+      description: |
+        Calculate the optimal Layer 2 network for settlement based on
+        cost, speed, and finality requirements.
+      operationId: calculateL2Route
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/L2RoutingRequest'
+            example:
+              amount: "10000000000000000000"
+              urgency: "medium"
+              finalityRequirement: "zk"
+              maxCostUsd: 10
+      responses:
+        '200':
+          description: Optimal routes calculated
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/L2Route'
+
+  /l2/bridge:
+    post:
+      tags: [Layer2]
+      summary: Initiate cross-layer bridge
+      description: Bridge assets between L1 and L2 or between L2 networks
+      operationId: initiateBridge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BridgeRequest'
+      responses:
+        '202':
+          description: Bridge transfer initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BridgeTransfer'
+
+  /mev/protect:
+    post:
+      tags: [MEV]
+      summary: Submit MEV-protected transaction
+      description: |
+        Submit transaction with MEV protection via Flashbots.
+        Prevents front-running and sandwich attacks.
+      operationId: protectTransaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MEVProtectionRequest'
+            example:
+              transaction:
+                to: "0x8ba1f109551bD432803012645Ac136ddd64DBA72"
+                value: "1000000000000000000"
+                data: "0x"
+              protectionLevel: "enhanced"
+              maxBlocksWait: 5
+      responses:
+        '202':
+          description: Transaction submitted to Flashbots
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MEVProtectedTransaction'
+
+  /mev/bundles:
+    post:
+      tags: [MEV]
+      summary: Create transaction bundle
+      description: Create atomic transaction bundle for Flashbots submission
+      operationId: createBundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BundleRequest'
+      responses:
+        '201':
+          description: Bundle created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /health:
+    get:
+      tags: [Health]
+      summary: System health check
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: System healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              example:
+                status: "healthy"
+                version: "1.0.0"
+                services:
+                  settlement: "healthy"
+                  custody: "healthy"
+                  finality: "healthy"
+                  l2: "healthy"
+                  mev: "healthy"
+                timestamp: "2024-01-15T10:30:00Z"
+
+  /health/detailed:
+    get:
+      tags: [Health]
+      summary: Detailed system health
+      operationId: detailedHealthCheck
+      responses:
+        '200':
+          description: Detailed health information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailedHealth'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained via OAuth 2.0 flow
+
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for high-security operations (requires HMAC signature)
+
+  schemas:
+    CreateSettlementRequest:
+      type: object
+      required:
+        - sender
+        - receiver
+        - amount
+        - chain
+      properties:
+        sender:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{40}$'
+          description: Sender Ethereum address
+        receiver:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{40}$'
+          description: Receiver Ethereum address
+        amount:
+          type: string
+          pattern: '^\d+$'
+          description: Amount in wei
+        chain:
+          type: string
+          enum: [ethereum, zksync-era, optimism, arbitrum-one, base]
+        settlementType:
+          type: string
+          enum: [instant, atomic, deferred]
+          default: instant
+        mevProtection:
+          type: boolean
+          default: false
+        priorityLevel:
+          type: string
+          enum: [low, medium, high, critical]
+          default: medium
+        metadata:
+          type: object
+          additionalProperties: true
+
+    Settlement:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        sender:
+          type: string
+        receiver:
+          type: string
+        amount:
+          type: string
+        chain:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, finalized, failed]
+        txHash:
+          type: string
+          nullable: true
+        gasUsed:
+          type: string
+          nullable: true
+        gasCostUsd:
+          type: number
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        finalizedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finality:
+          $ref: '#/components/schemas/FinalityStatus'
+
+    SettlementList:
+      type: object
+      properties:
+        settlements:
+          type: array
+          items:
+            $ref: '#/components/schemas/Settlement'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    FinalityStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, verifying, finalized, challenged]
+        finalityType:
+          type: string
+          enum: [zk, optimistic, probabilistic]
+        confirmations:
+          type: integer
+        requiredConfirmations:
+          type: integer
+        timeToFinality:
+          type: integer
+          description: Estimated seconds to finality
+        proof:
+          type: string
+          nullable: true
+          description: ZK proof if applicable
+        challengePeriodEnds:
+          type: string
+          format: date-time
+          nullable: true
+          description: For optimistic rollups
+
+    CreateWalletRequest:
+      type: object
+      required:
+        - name
+        - scheme
+        - threshold
+        - participants
+        - participantIds
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        scheme:
+          type: string
+          enum: [frost, gg18]
+        threshold:
+          type: integer
+          minimum: 1
+        participants:
+          type: integer
+          minimum: 2
+        participantIds:
+          type: array
+          items:
+            type: string
+        policy:
+          $ref: '#/components/schemas/WalletPolicy'
+
+    WalletPolicy:
+      type: object
+      properties:
+        maxTransactionAmount:
+          type: string
+          description: Maximum single transaction in wei
+        dailyLimit:
+          type: string
+          description: Daily transaction limit in wei
+        allowedDestinations:
+          type: array
+          items:
+            type: string
+          description: Allowed destination addresses (supports wildcards)
+        blockedDestinations:
+          type: array
+          items:
+            type: string
+        requireKYC:
+          type: boolean
+          default: true
+        requireApproval:
+          type: boolean
+          default: false
+        approvalThreshold:
+          type: integer
+          minimum: 1
+
+    CustodyWallet:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        address:
+          type: string
+        scheme:
+          type: string
+          enum: [frost, gg18]
+        threshold:
+          type: integer
+        participants:
+          type: integer
+        publicKey:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        lastActivity:
+          type: string
+          format: date-time
+          nullable: true
+        policy:
+          $ref: '#/components/schemas/WalletPolicy'
+
+    SignatureRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Message to sign (hex encoded)
+        transaction:
+          type: object
+          properties:
+            to:
+              type: string
+            value:
+              type: string
+            data:
+              type: string
+            gasLimit:
+              type: string
+            nonce:
+              type: integer
+
+    SignatureSession:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        walletId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, collecting, signing, completed, failed]
+        participantsRequired:
+          type: integer
+        participantsJoined:
+          type: integer
+        expiresAt:
+          type: string
+          format: date-time
+        signature:
+          type: string
+          nullable: true
+
+    KeyRotationSession:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        walletId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [initiated, distributing, verifying, completed, failed]
+        newPublicKey:
+          type: string
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    L2RoutingRequest:
+      type: object
+      required:
+        - amount
+      properties:
+        amount:
+          type: string
+          description: Transaction amount in wei
+        urgency:
+          type: string
+          enum: [low, medium, high]
+          default: medium
+        finalityRequirement:
+          type: string
+          enum: [any, optimistic, zk]
+          default: any
+        maxCostUsd:
+          type: number
+          description: Maximum acceptable cost in USD
+
+    L2Route:
+      type: object
+      properties:
+        network:
+          type: string
+          enum: [zksync-era, optimism, arbitrum-one, base]
+        score:
+          type: number
+          description: Optimization score (0-100)
+        estimatedCostUsd:
+          type: number
+        estimatedTimeSeconds:
+          type: integer
+        finalityType:
+          type: string
+          enum: [zk, optimistic]
+        gasPrice:
+          type: string
+
+    BridgeRequest:
+      type: object
+      required:
+        - sourceChain
+        - targetChain
+        - amount
+      properties:
+        sourceChain:
+          type: string
+        targetChain:
+          type: string
+        amount:
+          type: string
+        token:
+          type: string
+          default: "ETH"
+
+    BridgeTransfer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [initiated, pending, completed, failed]
+        sourceChain:
+          type: string
+        targetChain:
+          type: string
+        sourceTxHash:
+          type: string
+          nullable: true
+        targetTxHash:
+          type: string
+          nullable: true
+        estimatedCompletion:
+          type: string
+          format: date-time
+
+    MEVProtectionRequest:
+      type: object
+      required:
+        - transaction
+      properties:
+        transaction:
+          type: object
+          required:
+            - to
+            - value
+          properties:
+            to:
+              type: string
+            value:
+              type: string
+            data:
+              type: string
+              default: "0x"
+            gasLimit:
+              type: string
+        protectionLevel:
+          type: string
+          enum: [basic, enhanced, maximum]
+          default: enhanced
+        maxBlocksWait:
+          type: integer
+          default: 3
+
+    MEVProtectedTransaction:
+      type: object
+      properties:
+        bundleId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [submitted, pending, included, failed]
+        txHash:
+          type: string
+          nullable: true
+        targetBlock:
+          type: integer
+        submittedAt:
+          type: string
+          format: date-time
+
+    BundleRequest:
+      type: object
+      required:
+        - transactions
+        - targetBlock
+      properties:
+        transactions:
+          type: array
+          items:
+            type: object
+            properties:
+              signedTransaction:
+                type: string
+        targetBlock:
+          type: integer
+        minTimestamp:
+          type: integer
+        maxTimestamp:
+          type: integer
+
+    Bundle:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [created, simulated, submitted, included, failed]
+        transactions:
+          type: array
+          items:
+            type: string
+        targetBlock:
+          type: integer
+        simulation:
+          type: object
+          nullable: true
+          properties:
+            success:
+              type: boolean
+            gasUsed:
+              type: string
+            coinbaseDiff:
+              type: string
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        version:
+          type: string
+        services:
+          type: object
+          additionalProperties:
+            type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    DetailedHealth:
+      type: object
+      properties:
+        status:
+          type: string
+        uptime:
+          type: integer
+        metrics:
+          type: object
+          properties:
+            requestsPerSecond:
+              type: number
+            averageLatencyMs:
+              type: number
+            errorRate:
+              type: number
+        dependencies:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+              latencyMs:
+                type: number
+
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        requestId:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: "INVALID_REQUEST"
+            message: "Invalid Ethereum address format"
+            requestId: "req_123abc"
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: "UNAUTHORIZED"
+            message: "Invalid or expired token"
+            requestId: "req_123abc"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: "VALIDATION_ERROR"
+            message: "Request validation failed"
+            details:
+              amount: "Must be positive integer"
+            requestId: "req_123abc"
+
+    PolicyViolation:
+      description: Custody policy violation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: "POLICY_VIOLATION"
+            message: "Transaction exceeds daily limit"
+            details:
+              limit: "1000000000000000000000"
+              requested: "2000000000000000000000"
+            requestId: "req_123abc"
+
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: "RATE_LIMITED"
+            message: "Rate limit exceeded"
+            details:
+              retryAfter: 60
+            requestId: "req_123abc"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: "INTERNAL_ERROR"
+            message: "An unexpected error occurred"
+            requestId: "req_123abc"
+
+webhooks:
+  settlementFinalized:
+    post:
+      summary: Settlement finalized webhook
+      description: Triggered when a settlement reaches finality
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event:
+                  type: string
+                  enum: [settlement.finalized]
+                data:
+                  $ref: '#/components/schemas/Settlement'
+                timestamp:
+                  type: string
+                  format: date-time
+
+  signatureCompleted:
+    post:
+      summary: Threshold signature completed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event:
+                  type: string
+                  enum: [signature.completed]
+                data:
+                  $ref: '#/components/schemas/SignatureSession'
+                timestamp:
+                  type: string
+                  format: date-time

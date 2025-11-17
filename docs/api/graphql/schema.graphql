@@ -1,0 +1,729 @@
+"""
+Settlement and Custody Engine GraphQL API
+Production-grade decentralized settlement and institutional custody operations
+"""
+
+scalar DateTime
+scalar BigInt
+scalar Address
+scalar Bytes32
+scalar UUID
+
+"""
+Root Query type for reading data
+"""
+type Query {
+  """
+  Retrieve a specific settlement by ID
+  """
+  settlement(id: UUID!): Settlement
+
+  """
+  List settlements with filtering and pagination
+  """
+  settlements(
+    filter: SettlementFilter
+    pagination: PaginationInput
+    orderBy: SettlementOrderBy
+  ): SettlementConnection!
+
+  """
+  Get custody wallet details
+  """
+  custodyWallet(id: UUID!): CustodyWallet
+
+  """
+  List all custody wallets for the authenticated organization
+  """
+  custodyWallets(
+    filter: WalletFilter
+    pagination: PaginationInput
+  ): CustodyWalletConnection!
+
+  """
+  Get signature session status
+  """
+  signatureSession(id: UUID!): SignatureSession
+
+  """
+  Calculate optimal L2 routing strategies
+  """
+  l2Routes(input: L2RoutingInput!): [L2Route!]!
+
+  """
+  Get L2 network statistics
+  """
+  l2NetworkStats: L2NetworkStats!
+
+  """
+  Get MEV bundle status
+  """
+  mevBundle(id: UUID!): Bundle
+
+  """
+  Cross-chain finality statistics
+  """
+  finalityStats(chain: Chain!): FinalityStats!
+
+  """
+  System health status
+  """
+  health: HealthStatus!
+
+  """
+  Detailed system metrics
+  """
+  metrics: SystemMetrics!
+}
+
+"""
+Root Mutation type for modifying data
+"""
+type Mutation {
+  """
+  Create a new settlement transaction
+  """
+  createSettlement(input: CreateSettlementInput!): Settlement!
+
+  """
+  Cancel a pending settlement (if not yet submitted)
+  """
+  cancelSettlement(id: UUID!): Settlement!
+
+  """
+  Create a new custody wallet with threshold signatures
+  """
+  createCustodyWallet(input: CreateWalletInput!): CustodyWallet!
+
+  """
+  Update wallet policy
+  """
+  updateWalletPolicy(walletId: UUID!, policy: PolicyInput!): CustodyWallet!
+
+  """
+  Initiate threshold signature request
+  """
+  requestSignature(
+    walletId: UUID!
+    input: SignatureRequestInput!
+  ): SignatureSession!
+
+  """
+  Join an existing signature session as a participant
+  """
+  joinSignatureSession(
+    sessionId: UUID!
+    participantId: String!
+    commitment: String!
+  ): SignatureSession!
+
+  """
+  Complete signature round with participant share
+  """
+  submitSignatureShare(
+    sessionId: UUID!
+    participantId: String!
+    share: String!
+  ): SignatureSession!
+
+  """
+  Initiate key rotation for a custody wallet
+  """
+  rotateKeys(walletId: UUID!): KeyRotationSession!
+
+  """
+  Initiate cross-layer bridge transfer
+  """
+  initiateBridge(input: BridgeInput!): BridgeTransfer!
+
+  """
+  Submit MEV-protected transaction
+  """
+  submitMEVProtectedTransaction(
+    input: MEVProtectionInput!
+  ): MEVProtectedTransaction!
+
+  """
+  Create transaction bundle for Flashbots
+  """
+  createBundle(input: BundleInput!): Bundle!
+
+  """
+  Submit bundle to Flashbots relay
+  """
+  submitBundle(bundleId: UUID!): Bundle!
+
+  """
+  Register webhook for event notifications
+  """
+  registerWebhook(input: WebhookInput!): Webhook!
+
+  """
+  Delete registered webhook
+  """
+  deleteWebhook(id: UUID!): Boolean!
+}
+
+"""
+Root Subscription type for real-time updates
+"""
+type Subscription {
+  """
+  Subscribe to settlement status updates
+  """
+  settlementUpdated(id: UUID!): Settlement!
+
+  """
+  Subscribe to all settlements for the organization
+  """
+  settlementsStream(filter: SettlementFilter): Settlement!
+
+  """
+  Subscribe to signature session progress
+  """
+  signatureSessionUpdated(sessionId: UUID!): SignatureSession!
+
+  """
+  Subscribe to custody wallet events
+  """
+  walletEvents(walletId: UUID!): WalletEvent!
+
+  """
+  Subscribe to L2 network gas prices
+  """
+  l2GasPrices: L2GasPriceUpdate!
+
+  """
+  Subscribe to MEV bundle status updates
+  """
+  bundleStatusUpdated(bundleId: UUID!): Bundle!
+
+  """
+  Subscribe to bridge transfer progress
+  """
+  bridgeTransferUpdated(transferId: UUID!): BridgeTransfer!
+}
+
+# Enums
+
+enum Chain {
+  ETHEREUM
+  ZKSYNC_ERA
+  OPTIMISM
+  ARBITRUM_ONE
+  BASE
+}
+
+enum SettlementStatus {
+  PENDING
+  PROCESSING
+  FINALIZED
+  FAILED
+  CANCELLED
+}
+
+enum SettlementType {
+  INSTANT
+  ATOMIC
+  DEFERRED
+}
+
+enum FinalityType {
+  ZK
+  OPTIMISTIC
+  PROBABILISTIC
+}
+
+enum SignatureScheme {
+  FROST
+  GG18
+}
+
+enum SignatureSessionStatus {
+  PENDING
+  COLLECTING
+  SIGNING
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+enum BundleStatus {
+  CREATED
+  SIMULATED
+  SUBMITTED
+  PENDING
+  INCLUDED
+  FAILED
+}
+
+enum BridgeStatus {
+  INITIATED
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum PriorityLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ProtectionLevel {
+  BASIC
+  ENHANCED
+  MAXIMUM
+}
+
+# Settlement Types
+
+type Settlement {
+  id: UUID!
+  sender: Address!
+  receiver: Address!
+  amount: BigInt!
+  amountUsd: Float
+  chain: Chain!
+  status: SettlementStatus!
+  settlementType: SettlementType!
+  txHash: Bytes32
+  blockNumber: Int
+  gasUsed: BigInt
+  gasCostUsd: Float
+  mevProtected: Boolean!
+  priorityLevel: PriorityLevel!
+  finality: FinalityStatus
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  finalizedAt: DateTime
+  metadata: JSON
+}
+
+type SettlementConnection {
+  edges: [SettlementEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  aggregates: SettlementAggregates!
+}
+
+type SettlementEdge {
+  node: Settlement!
+  cursor: String!
+}
+
+type SettlementAggregates {
+  totalVolume: BigInt!
+  totalVolumeUsd: Float!
+  averageLatencyMs: Float!
+  successRate: Float!
+}
+
+type FinalityStatus {
+  status: FinalityStatusType!
+  finalityType: FinalityType!
+  confirmations: Int!
+  requiredConfirmations: Int!
+  timeToFinality: Int
+  proof: String
+  challengePeriodEnds: DateTime
+  verifiedAt: DateTime
+}
+
+enum FinalityStatusType {
+  PENDING
+  VERIFYING
+  FINALIZED
+  CHALLENGED
+  FAILED
+}
+
+# Custody Types
+
+type CustodyWallet {
+  id: UUID!
+  name: String!
+  address: Address!
+  scheme: SignatureScheme!
+  threshold: Int!
+  totalParticipants: Int!
+  publicKey: String!
+  participantIds: [String!]!
+  policy: WalletPolicy!
+  balance: BigInt
+  createdAt: DateTime!
+  lastActivity: DateTime
+  signatureSessions(status: SignatureSessionStatus): [SignatureSession!]!
+}
+
+type CustodyWalletConnection {
+  edges: [CustodyWalletEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CustodyWalletEdge {
+  node: CustodyWallet!
+  cursor: String!
+}
+
+type WalletPolicy {
+  maxTransactionAmount: BigInt
+  dailyLimit: BigInt
+  dailyUsed: BigInt
+  allowedDestinations: [String!]!
+  blockedDestinations: [String!]!
+  requireKYC: Boolean!
+  requireApproval: Boolean!
+  approvalThreshold: Int
+}
+
+type SignatureSession {
+  id: UUID!
+  walletId: UUID!
+  status: SignatureSessionStatus!
+  message: String!
+  participantsRequired: Int!
+  participantsJoined: Int!
+  joinedParticipants: [String!]!
+  commitments: [ParticipantCommitment!]!
+  signature: String
+  createdAt: DateTime!
+  expiresAt: DateTime!
+  completedAt: DateTime
+}
+
+type ParticipantCommitment {
+  participantId: String!
+  commitment: String!
+  joinedAt: DateTime!
+}
+
+type KeyRotationSession {
+  id: UUID!
+  walletId: UUID!
+  status: KeyRotationStatus!
+  oldPublicKey: String!
+  newPublicKey: String
+  initiatedAt: DateTime!
+  completedAt: DateTime
+}
+
+enum KeyRotationStatus {
+  INITIATED
+  DISTRIBUTING
+  VERIFYING
+  COMPLETED
+  FAILED
+}
+
+type WalletEvent {
+  id: UUID!
+  walletId: UUID!
+  eventType: WalletEventType!
+  data: JSON!
+  timestamp: DateTime!
+}
+
+enum WalletEventType {
+  SIGNATURE_REQUESTED
+  SIGNATURE_COMPLETED
+  SIGNATURE_FAILED
+  POLICY_UPDATED
+  KEY_ROTATED
+  BALANCE_CHANGED
+}
+
+# L2 Types
+
+type L2Route {
+  network: Chain!
+  score: Float!
+  estimatedCostUsd: Float!
+  estimatedTimeSeconds: Int!
+  finalityType: FinalityType!
+  gasPrice: BigInt!
+  confidence: Float!
+}
+
+type L2NetworkStats {
+  networks: [NetworkStat!]!
+  totalTransactions24h: Int!
+  totalVolume24hUsd: Float!
+  averageGasSavingsPercent: Float!
+}
+
+type NetworkStat {
+  network: Chain!
+  currentGasPrice: BigInt!
+  avgBlockTime: Float!
+  transactions24h: Int!
+  volume24hUsd: Float!
+  successRate: Float!
+}
+
+type L2GasPriceUpdate {
+  network: Chain!
+  gasPrice: BigInt!
+  timestamp: DateTime!
+}
+
+type BridgeTransfer {
+  id: UUID!
+  sourceChain: Chain!
+  targetChain: Chain!
+  amount: BigInt!
+  token: String!
+  status: BridgeStatus!
+  sourceTxHash: Bytes32
+  targetTxHash: Bytes32
+  initiatedAt: DateTime!
+  estimatedCompletion: DateTime
+  completedAt: DateTime
+}
+
+# MEV Types
+
+type MEVProtectedTransaction {
+  id: UUID!
+  bundleId: UUID!
+  status: BundleStatus!
+  txHash: Bytes32
+  targetBlock: Int!
+  submittedAt: DateTime!
+  includedAt: DateTime
+}
+
+type Bundle {
+  id: UUID!
+  status: BundleStatus!
+  transactions: [String!]!
+  targetBlock: Int!
+  simulation: BundleSimulation
+  submittedAt: DateTime
+  includedInBlock: Int
+}
+
+type BundleSimulation {
+  success: Boolean!
+  gasUsed: BigInt!
+  coinbaseDiff: BigInt!
+  totalGasUsed: BigInt!
+  stateBlockNumber: Int!
+  results: [SimulationResult!]!
+}
+
+type SimulationResult {
+  txHash: String!
+  gasUsed: BigInt!
+  revert: String
+}
+
+# Finality Types
+
+type FinalityStats {
+  chain: Chain!
+  averageTimeToFinality: Int!
+  p95TimeToFinality: Int!
+  verificationSuccessRate: Float!
+  recentReorganizations: Int!
+  lastBlockNumber: Int!
+  syncStatus: SyncStatus!
+}
+
+type SyncStatus {
+  isSynced: Boolean!
+  currentBlock: Int!
+  highestBlock: Int!
+  lagBlocks: Int!
+}
+
+# System Types
+
+type HealthStatus {
+  status: SystemStatus!
+  version: String!
+  uptime: Int!
+  services: [ServiceHealth!]!
+  timestamp: DateTime!
+}
+
+enum SystemStatus {
+  HEALTHY
+  DEGRADED
+  UNHEALTHY
+}
+
+type ServiceHealth {
+  name: String!
+  status: SystemStatus!
+  latencyMs: Float
+  lastCheck: DateTime!
+}
+
+type SystemMetrics {
+  requestsPerSecond: Float!
+  averageLatencyMs: Float!
+  errorRate: Float!
+  activeConnections: Int!
+  cpuUsagePercent: Float!
+  memoryUsagePercent: Float!
+  settlementMetrics: SettlementMetrics!
+  custodyMetrics: CustodyMetrics!
+}
+
+type SettlementMetrics {
+  pendingCount: Int!
+  processingCount: Int!
+  successRate24h: Float!
+  volume24hUsd: Float!
+  averageFinalizationTimeMs: Float!
+}
+
+type CustodyMetrics {
+  activeWallets: Int!
+  pendingSignatures: Int!
+  signaturesCompleted24h: Int!
+  policyViolations24h: Int!
+}
+
+type Webhook {
+  id: UUID!
+  url: String!
+  events: [WebhookEventType!]!
+  secret: String!
+  active: Boolean!
+  createdAt: DateTime!
+}
+
+enum WebhookEventType {
+  SETTLEMENT_CREATED
+  SETTLEMENT_FINALIZED
+  SETTLEMENT_FAILED
+  SIGNATURE_REQUESTED
+  SIGNATURE_COMPLETED
+  BRIDGE_COMPLETED
+  BUNDLE_INCLUDED
+}
+
+# Input Types
+
+input CreateSettlementInput {
+  sender: Address!
+  receiver: Address!
+  amount: BigInt!
+  chain: Chain!
+  settlementType: SettlementType = INSTANT
+  mevProtection: Boolean = false
+  priorityLevel: PriorityLevel = MEDIUM
+  metadata: JSON
+}
+
+input SettlementFilter {
+  status: [SettlementStatus!]
+  chain: [Chain!]
+  settlementType: [SettlementType!]
+  sender: Address
+  receiver: Address
+  minAmount: BigInt
+  maxAmount: BigInt
+  fromDate: DateTime
+  toDate: DateTime
+  mevProtected: Boolean
+}
+
+enum SettlementOrderBy {
+  CREATED_AT_ASC
+  CREATED_AT_DESC
+  AMOUNT_ASC
+  AMOUNT_DESC
+  FINALIZED_AT_ASC
+  FINALIZED_AT_DESC
+}
+
+input CreateWalletInput {
+  name: String!
+  scheme: SignatureScheme!
+  threshold: Int!
+  participants: Int!
+  participantIds: [String!]!
+  policy: PolicyInput
+}
+
+input PolicyInput {
+  maxTransactionAmount: BigInt
+  dailyLimit: BigInt
+  allowedDestinations: [String!]
+  blockedDestinations: [String!]
+  requireKYC: Boolean
+  requireApproval: Boolean
+  approvalThreshold: Int
+}
+
+input WalletFilter {
+  scheme: SignatureScheme
+  hasBalance: Boolean
+  search: String
+}
+
+input SignatureRequestInput {
+  message: String!
+  transaction: TransactionInput
+}
+
+input TransactionInput {
+  to: Address!
+  value: BigInt!
+  data: String
+  gasLimit: BigInt
+  nonce: Int
+}
+
+input L2RoutingInput {
+  amount: BigInt!
+  urgency: PriorityLevel = MEDIUM
+  finalityRequirement: FinalityType
+  maxCostUsd: Float
+}
+
+input BridgeInput {
+  sourceChain: Chain!
+  targetChain: Chain!
+  amount: BigInt!
+  token: String = "ETH"
+}
+
+input MEVProtectionInput {
+  transaction: TransactionInput!
+  protectionLevel: ProtectionLevel = ENHANCED
+  maxBlocksWait: Int = 3
+}
+
+input BundleInput {
+  transactions: [String!]!
+  targetBlock: Int!
+  minTimestamp: Int
+  maxTimestamp: Int
+}
+
+input WebhookInput {
+  url: String!
+  events: [WebhookEventType!]!
+}
+
+input PaginationInput {
+  first: Int
+  after: String
+  last: Int
+  before: String
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+scalar JSON

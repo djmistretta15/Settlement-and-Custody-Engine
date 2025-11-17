@@ -1,0 +1,34 @@
+{
+  "name": "@settlement-engine/observability",
+  "version": "1.0.0",
+  "description": "Full observability stack for Settlement and Custody Engine",
+  "main": "index.js",
+  "scripts": {
+    "setup": "kubectl apply -f kubernetes/",
+    "dashboards:import": "node scripts/import-dashboards.js",
+    "alerts:validate": "promtool check rules alerts/*.yml",
+    "grafana:port-forward": "kubectl port-forward svc/grafana 3000:3000",
+    "prometheus:port-forward": "kubectl port-forward svc/prometheus 9090:9090",
+    "jaeger:port-forward": "kubectl port-forward svc/jaeger 16686:16686"
+  },
+  "keywords": [
+    "observability",
+    "monitoring",
+    "prometheus",
+    "grafana",
+    "loki",
+    "jaeger",
+    "alerting",
+    "dashboards",
+    "metrics"
+  ],
+  "author": "Settlement Engine Team",
+  "license": "MIT",
+  "dependencies": {
+    "@grafana/api": "^9.5.0",
+    "prom-client": "^15.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0"
+  }
+}

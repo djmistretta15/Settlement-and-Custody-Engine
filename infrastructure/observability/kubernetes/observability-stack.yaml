@@ -1,0 +1,877 @@
+###############################################################################
+# Full Observability Stack for Settlement and Custody Engine
+#
+# Components:
+# - Prometheus (metrics collection)
+# - Grafana (visualization)
+# - Loki (log aggregation)
+# - Promtail (log shipping)
+# - Jaeger (distributed tracing)
+# - AlertManager (alerting)
+###############################################################################
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    app: observability
+    env: production
+
+---
+
+###############################################################################
+# Prometheus Operator Configuration
+###############################################################################
+
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: settlement-prometheus
+  namespace: observability
+spec:
+  replicas: 2
+  retention: 30d
+  retentionSize: 100GB
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 500m
+    limits:
+      memory: 8Gi
+      cpu: 2000m
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: gp3
+        resources:
+          requests:
+            storage: 500Gi
+  serviceMonitorSelector:
+    matchLabels:
+      team: settlement-engine
+  podMonitorSelector:
+    matchLabels:
+      team: settlement-engine
+  ruleSelector:
+    matchLabels:
+      team: settlement-engine
+  alerting:
+    alertmanagers:
+      - name: alertmanager
+        namespace: observability
+        port: web
+  additionalScrapeConfigs:
+    name: additional-scrape-configs
+    key: additional-scrape-configs.yaml
+
+---
+
+###############################################################################
+# Service Monitors for Settlement Engine Services
+###############################################################################
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: settlement-engine-monitor
+  namespace: observability
+  labels:
+    team: settlement-engine
+spec:
+  selector:
+    matchLabels:
+      app: settlement-engine
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics
+  namespaceSelector:
+    matchNames:
+      - settlement-engine
+
+---
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: custody-engine-monitor
+  namespace: observability
+  labels:
+    team: settlement-engine
+spec:
+  selector:
+    matchLabels:
+      app: custody-engine
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics
+  namespaceSelector:
+    matchNames:
+      - settlement-engine
+
+---
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: finality-verifier-monitor
+  namespace: observability
+  labels:
+    team: settlement-engine
+spec:
+  selector:
+    matchLabels:
+      app: finality-verifier
+  endpoints:
+    - port: metrics
+      interval: 10s
+      path: /metrics
+  namespaceSelector:
+    matchNames:
+      - settlement-engine
+
+---
+
+###############################################################################
+# Prometheus Alert Rules
+###############################################################################
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: settlement-alerts
+  namespace: observability
+  labels:
+    team: settlement-engine
+spec:
+  groups:
+    - name: settlement.rules
+      rules:
+        # High error rate
+        - alert: HighSettlementErrorRate
+          expr: |
+            sum(rate(settlement_errors_total[5m])) / sum(rate(settlement_requests_total[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            team: settlement-engine
+          annotations:
+            summary: High settlement error rate
+            description: Settlement error rate is {{ $value | humanizePercentage }} (>5%)
+
+        # Slow settlement processing
+        - alert: SlowSettlementProcessing
+          expr: |
+            histogram_quantile(0.95, rate(settlement_processing_duration_seconds_bucket[5m])) > 30
+          for: 10m
+          labels:
+            severity: warning
+            team: settlement-engine
+          annotations:
+            summary: Slow settlement processing
+            description: P95 settlement processing time is {{ $value }}s (>30s)
+
+        # High custody vault signing failures
+        - alert: CustodySigningFailures
+          expr: |
+            sum(rate(custody_signing_failures_total[5m])) > 1
+          for: 2m
+          labels:
+            severity: critical
+            team: custody
+          annotations:
+            summary: Custody signing failures detected
+            description: {{ $value }} signing failures per second
+
+        # Finality verification lag
+        - alert: FinalityVerificationLag
+          expr: |
+            finality_verification_lag_blocks > 10
+          for: 5m
+          labels:
+            severity: warning
+            team: settlement-engine
+          annotations:
+            summary: Finality verification is lagging
+            description: Verification is {{ $value }} blocks behind
+
+        # L2 bridge pending too long
+        - alert: L2BridgePendingLong
+          expr: |
+            sum(l2_bridge_pending_transfers{status="pending"}) > 10
+          for: 30m
+          labels:
+            severity: warning
+            team: settlement-engine
+          annotations:
+            summary: Many L2 bridge transfers pending
+            description: {{ $value }} transfers pending for >30 minutes
+
+        # MEV protection bundle failures
+        - alert: MEVBundleFailures
+          expr: |
+            sum(rate(mev_bundle_failures_total[5m])) / sum(rate(mev_bundle_submissions_total[5m])) > 0.5
+          for: 15m
+          labels:
+            severity: warning
+            team: settlement-engine
+          annotations:
+            summary: High MEV bundle failure rate
+            description: {{ $value | humanizePercentage }} of MEV bundles failing
+
+        # Database connection pool exhausted
+        - alert: DatabaseConnectionPoolExhausted
+          expr: |
+            pg_stat_activity_count / pg_settings_max_connections > 0.9
+          for: 5m
+          labels:
+            severity: critical
+            team: infrastructure
+          annotations:
+            summary: Database connection pool nearly exhausted
+            description: {{ $value | humanizePercentage }} of connections in use
+
+        # Pod restart loop
+        - alert: PodRestartLoop
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="settlement-engine"}[1h]) > 5
+          for: 10m
+          labels:
+            severity: warning
+            team: infrastructure
+          annotations:
+            summary: Pod experiencing restart loop
+            description: Pod {{ $labels.pod }} has restarted {{ $value }} times in the last hour
+
+---
+
+###############################################################################
+# AlertManager Configuration
+###############################################################################
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-config
+  namespace: observability
+type: Opaque
+stringData:
+  alertmanager.yaml: |
+    global:
+      resolve_timeout: 5m
+      slack_api_url: 'https://hooks.slack.com/services/xxx/xxx/xxx'
+      pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+    route:
+      receiver: 'default'
+      group_by: ['alertname', 'severity']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - match:
+            severity: critical
+          receiver: 'pagerduty-critical'
+          group_wait: 10s
+          repeat_interval: 1h
+        - match:
+            severity: warning
+          receiver: 'slack-warnings'
+        - match:
+            team: settlement-engine
+          receiver: 'settlement-team'
+
+    receivers:
+      - name: 'default'
+        slack_configs:
+          - channel: '#alerts'
+            title: '{{ .CommonLabels.alertname }}'
+            text: '{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}'
+
+      - name: 'pagerduty-critical'
+        pagerduty_configs:
+          - routing_key: '${PAGERDUTY_ROUTING_KEY}'
+            severity: 'critical'
+            description: '{{ .CommonLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+
+      - name: 'slack-warnings'
+        slack_configs:
+          - channel: '#settlement-alerts'
+            title: ':warning: {{ .CommonLabels.alertname }}'
+            text: '{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}'
+
+      - name: 'settlement-team'
+        slack_configs:
+          - channel: '#settlement-oncall'
+            title: '{{ .CommonLabels.alertname }}'
+            text: '{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}'
+        pagerduty_configs:
+          - routing_key: '${SETTLEMENT_PAGERDUTY_KEY}'
+            severity: '{{ .CommonLabels.severity }}'
+
+    inhibit_rules:
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname']
+
+---
+
+apiVersion: monitoring.coreos.com/v1
+kind: Alertmanager
+metadata:
+  name: alertmanager
+  namespace: observability
+spec:
+  replicas: 3
+  configSecret: alertmanager-config
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: gp3
+        resources:
+          requests:
+            storage: 10Gi
+
+---
+
+###############################################################################
+# Grafana Deployment
+###############################################################################
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability
+  labels:
+    app: grafana
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        fsGroup: 472
+        runAsUser: 472
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.2.0
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-credentials
+                  key: admin-password
+            - name: GF_INSTALL_PLUGINS
+              value: grafana-piechart-panel,grafana-clock-panel
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_AUTH_GENERIC_OAUTH_ENABLED
+              value: "true"
+          volumeMounts:
+            - name: grafana-storage
+              mountPath: /var/lib/grafana
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: grafana-dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: grafana-dashboards
+              mountPath: /var/lib/grafana/dashboards
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 1Gi
+              cpu: 500m
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 60
+            timeoutSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+      volumes:
+        - name: grafana-storage
+          persistentVolumeClaim:
+            claimName: grafana-pvc
+        - name: grafana-datasources
+          configMap:
+            name: grafana-datasources
+        - name: grafana-dashboards-provider
+          configMap:
+            name: grafana-dashboards-provider
+        - name: grafana-dashboards
+          configMap:
+            name: grafana-dashboards
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: grafana
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: observability
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+
+###############################################################################
+# Grafana Datasources Configuration
+###############################################################################
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: observability
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        url: http://prometheus-operated:9090
+        access: proxy
+        isDefault: true
+        editable: false
+
+      - name: Loki
+        type: loki
+        url: http://loki:3100
+        access: proxy
+        editable: false
+
+      - name: Jaeger
+        type: jaeger
+        url: http://jaeger-query:16686
+        access: proxy
+        editable: false
+
+---
+
+###############################################################################
+# Loki Log Aggregation
+###############################################################################
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+  namespace: observability
+spec:
+  serviceName: loki
+  replicas: 3
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:2.9.2
+          args:
+            - -config.file=/etc/loki/local-config.yaml
+          ports:
+            - containerPort: 3100
+          volumeMounts:
+            - name: loki-config
+              mountPath: /etc/loki
+            - name: loki-storage
+              mountPath: /loki
+          resources:
+            requests:
+              memory: 1Gi
+              cpu: 500m
+            limits:
+              memory: 4Gi
+              cpu: 2000m
+      volumes:
+        - name: loki-config
+          configMap:
+            name: loki-config
+  volumeClaimTemplates:
+    - metadata:
+        name: loki-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp3
+        resources:
+          requests:
+            storage: 200Gi
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: observability
+spec:
+  ports:
+    - port: 3100
+      targetPort: 3100
+  selector:
+    app: loki
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: observability
+data:
+  local-config.yaml: |
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+
+    common:
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+
+    schema_config:
+      configs:
+        - from: 2020-10-24
+          store: boltdb-shipper
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 24h
+
+    ruler:
+      alertmanager_url: http://alertmanager:9093
+
+    limits_config:
+      retention_period: 30d
+      max_query_series: 100000
+
+    query_scheduler:
+      max_outstanding_requests_per_tenant: 4096
+
+    frontend:
+      max_outstanding_per_tenant: 4096
+
+---
+
+###############################################################################
+# Promtail Log Shipper (DaemonSet)
+###############################################################################
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: observability
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      serviceAccountName: promtail
+      containers:
+        - name: promtail
+          image: grafana/promtail:2.9.2
+          args:
+            - -config.file=/etc/promtail/promtail.yaml
+          volumeMounts:
+            - name: promtail-config
+              mountPath: /etc/promtail
+            - name: varlog
+              mountPath: /var/log
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 50m
+            limits:
+              memory: 256Mi
+              cpu: 200m
+      volumes:
+        - name: promtail-config
+          configMap:
+            name: promtail-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: observability
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+
+    positions:
+      filename: /tmp/positions.yaml
+
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+
+    scrape_configs:
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: app
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+        pipeline_stages:
+          - docker: {}
+          - match:
+              selector: '{app="settlement-engine"}'
+              stages:
+                - json:
+                    expressions:
+                      level: level
+                      message: message
+                      timestamp: timestamp
+                - labels:
+                    level:
+                - timestamp:
+                    source: timestamp
+                    format: RFC3339
+
+---
+
+###############################################################################
+# Jaeger Distributed Tracing
+###############################################################################
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:1.51
+          ports:
+            - containerPort: 16686  # UI
+            - containerPort: 14268  # HTTP collector
+            - containerPort: 14250  # gRPC collector
+            - containerPort: 6831   # UDP compact thrift
+              protocol: UDP
+          env:
+            - name: SPAN_STORAGE_TYPE
+              value: badger
+            - name: BADGER_EPHEMERAL
+              value: "false"
+            - name: BADGER_DIRECTORY_VALUE
+              value: /badger/data
+            - name: BADGER_DIRECTORY_KEY
+              value: /badger/key
+          volumeMounts:
+            - name: jaeger-storage
+              mountPath: /badger
+          resources:
+            requests:
+              memory: 1Gi
+              cpu: 500m
+            limits:
+              memory: 4Gi
+              cpu: 2000m
+      volumes:
+        - name: jaeger-storage
+          persistentVolumeClaim:
+            claimName: jaeger-pvc
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jaeger-pvc
+  namespace: observability
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3
+  resources:
+    requests:
+      storage: 100Gi
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-query
+  namespace: observability
+spec:
+  ports:
+    - port: 16686
+      targetPort: 16686
+      name: ui
+  selector:
+    app: jaeger
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-collector
+  namespace: observability
+spec:
+  ports:
+    - port: 14268
+      targetPort: 14268
+      name: http
+    - port: 14250
+      targetPort: 14250
+      name: grpc
+    - port: 6831
+      targetPort: 6831
+      protocol: UDP
+      name: udp-compact
+  selector:
+    app: jaeger
+
+---
+
+###############################################################################
+# Ingress for Grafana
+###############################################################################
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana-ingress
+  namespace: observability
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /api/health
+spec:
+  rules:
+    - host: grafana.settlement-engine.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 3000
+
+---
+
+###############################################################################
+# ServiceAccount for Promtail
+###############################################################################
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: promtail
+  namespace: observability
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: promtail
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: promtail
+subjects:
+  - kind: ServiceAccount
+    name: promtail
+    namespace: observability
+roleRef:
+  kind: ClusterRole
+  name: promtail
+  apiGroup: rbac.authorization.k8s.io
+
+###############################################################################
+# End of Observability Stack Configuration
+###############################################################################

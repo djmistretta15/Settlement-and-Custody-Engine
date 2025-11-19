@@ -1,0 +1,59 @@
+{
+  "name": "settlement-and-custody-engine",
+  "version": "1.0.0",
+  "description": "Institutional-grade settlement and custody engine with cross-chain support and ZK-KYC compliance",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "test": "npx hardhat test",
+    "test:coverage": "npx hardhat coverage",
+    "test:gas": "REPORT_GAS=true npx hardhat test",
+    "deploy:local": "npx hardhat run scripts/deployment/deploy.js --network localhost",
+    "deploy:testnet": "npx hardhat run scripts/deployment/deploy.js --network sepolia",
+    "deploy:mainnet": "npx hardhat run scripts/deployment/deploy.js --network mainnet",
+    "node": "npx hardhat node",
+    "clean": "npx hardhat clean",
+    "api:start": "node api-routes/server.js",
+    "api:dev": "node --watch api-routes/server.js",
+    "lint": "eslint . --ext .js,.ts",
+    "format": "prettier --write '**/*.{js,ts,json,md}'",
+    "verify": "npx hardhat verify --network mainnet",
+    "validate:mvp": "bash scripts/validate-mvp.sh",
+    "setup": "npm install --legacy-peer-deps && npm run validate:mvp"
+  },
+  "keywords": [
+    "custody",
+    "settlement",
+    "cross-chain",
+    "mpc",
+    "zk-kyc",
+    "defi",
+    "institutional",
+    "blockchain",
+    "ethereum",
+    "solidity"
+  ],
+  "author": "Settlement Engine Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/djmistretta15/Settlement-and-Custody-Engine.git"
+  },
+  "devDependencies": {
+    "@graphql-tools/schema": "^10.0.29",
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@openzeppelin/contracts": "^5.4.0",
+    "@types/node": "^24.10.1",
+    "apollo-server-express": "^3.13.0",
+    "chai-as-promised": "^8.0.2",
+    "dotenv": "^17.2.3",
+    "ethers": "^6.15.0",
+    "express": "^5.1.0",
+    "graphql": "^16.12.0",
+    "hardhat": "^3.0.14",
+    "snarkjs": "^0.7.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

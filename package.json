@@ -18,7 +18,9 @@
     "api:dev": "node --watch api-routes/server.js",
     "lint": "eslint . --ext .js,.ts",
     "format": "prettier --write '**/*.{js,ts,json,md}'",
-    "verify": "npx hardhat verify --network mainnet"
+    "verify": "npx hardhat verify --network mainnet",
+    "validate:mvp": "bash scripts/validate-mvp.sh",
+    "setup": "npm install --legacy-peer-deps && npm run validate:mvp"
   },
   "keywords": [
     "custody",
